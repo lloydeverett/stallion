@@ -215,9 +215,9 @@ public:
         }) };
 
         return ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
-          if (event == ftxui::Event::Character('q')) {
-              return true;
-          }
+            if (event == ftxui::Event::Character('q')) {
+                return true;
+            }
           return false;
         });
     }
