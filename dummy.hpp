@@ -72,7 +72,7 @@ public:
     }
     virtual Help help() override {
         return { "Root", {
-            { Keycode::H, "hi", [] {} }
+            { Keycode::R, "hi", [] {} }
         } };
     }
 };
