@@ -150,8 +150,6 @@ public:
     }
 };
 
-#include <iostream>
-
 class RootView : public View {
 private:
     int tab_index = 0;
