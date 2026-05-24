@@ -73,8 +73,8 @@ public:
     virtual Help help() {
         return { std::nullopt, { } };
     };
+    virtual ~View() = default;
 };
-
 
 class ConsolidatedHelp {
 private:
