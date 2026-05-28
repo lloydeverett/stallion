@@ -3,6 +3,7 @@
 #include <random>
 
 #include "view.hpp"
+#include "log.hpp"
 
 inline int dummy_random() {
     static thread_local std::random_device rd;
@@ -24,7 +25,7 @@ public:
     }
     virtual Help help() override {
         return { "View", {
-            { Keycode::F, "foo", [] {} }
+            { Keycode::F, "foo", [&] { if (log_file) { log_file << "hello" << std::endl; } } }
         } };
     }
 };

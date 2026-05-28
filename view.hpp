@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <array>
+#include <cassert>
 
 #include "ftxui/component/app.hpp"
 #include "ftxui/component/component_base.hpp"
@@ -15,37 +16,95 @@
 #include "ftxui/dom/elements.hpp"
 #include "ftxui/screen/color.hpp"
 
-enum class Keycode : char {
+#include "log.hpp"
+
+enum class Keycode {
     // omit H, J, K, L to allow for vim-like navigation
-    MIN = 'A',
-    A = 'A',
-    B = 'B',
-    C = 'C',
-    D = 'D',
-    E = 'E',
-    F = 'F',
-    G = 'G',
-    I = 'I',
-    M = 'M',
-    N = 'N',
-    O = 'O',
-    P = 'P',
-    Q = 'Q',
-    R = 'R',
-    S = 'S',
-    T = 'T',
-    U = 'U',
-    V = 'V',
-    W = 'W',
-    X = 'X',
-    Y = 'Y',
-    Z = 'Z',
-    MAX = 'Z',
+    MIN = 0,
+    A = Keycode::MIN,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    I,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    MAX = Keycode::Z,
 };
 
-constexpr std::size_t keycode_to_integral(Keycode keycode) {
-    return static_cast<char>(keycode) - static_cast<char>(Keycode::MIN);
+constexpr char keycode_to_char(Keycode keycode) {
+    switch (keycode) {
+        case Keycode::A: return 'a';
+        case Keycode::B: return 'b';
+        case Keycode::C: return 'c';
+        case Keycode::D: return 'd';
+        case Keycode::E: return 'e';
+        case Keycode::F: return 'f';
+        case Keycode::G: return 'g';
+        case Keycode::I: return 'i';
+        case Keycode::M: return 'm';
+        case Keycode::N: return 'n';
+        case Keycode::O: return 'o';
+        case Keycode::P: return 'p';
+        case Keycode::Q: return 'q';
+        case Keycode::R: return 'r';
+        case Keycode::S: return 's';
+        case Keycode::T: return 't';
+        case Keycode::U: return 'u';
+        case Keycode::V: return 'v';
+        case Keycode::W: return 'w';
+        case Keycode::X: return 'x';
+        case Keycode::Y: return 'y';
+        case Keycode::Z: return 'z';
+    }
 }
+
+constexpr std::size_t keycode_to_integral(Keycode keycode) {
+    return static_cast<std::size_t>(keycode) - static_cast<std::size_t>(Keycode::MIN);
+}
+
+constexpr Keycode integral_to_keycode(std::size_t integral) {
+    return static_cast<Keycode>(integral + static_cast<std::size_t>(Keycode::MIN));
+}
+
+inline const std::array<ftxui::Event, keycode_to_integral(Keycode::MAX) + 1> keycode_events {
+    ftxui::Event::Character(keycode_to_char(Keycode::A)),
+    ftxui::Event::Character(keycode_to_char(Keycode::B)),
+    ftxui::Event::Character(keycode_to_char(Keycode::C)),
+    ftxui::Event::Character(keycode_to_char(Keycode::D)),
+    ftxui::Event::Character(keycode_to_char(Keycode::E)),
+    ftxui::Event::Character(keycode_to_char(Keycode::F)),
+    ftxui::Event::Character(keycode_to_char(Keycode::G)),
+    ftxui::Event::Character(keycode_to_char(Keycode::I)),
+    ftxui::Event::Character(keycode_to_char(Keycode::M)),
+    ftxui::Event::Character(keycode_to_char(Keycode::N)),
+    ftxui::Event::Character(keycode_to_char(Keycode::O)),
+    ftxui::Event::Character(keycode_to_char(Keycode::P)),
+    ftxui::Event::Character(keycode_to_char(Keycode::Q)),
+    ftxui::Event::Character(keycode_to_char(Keycode::R)),
+    ftxui::Event::Character(keycode_to_char(Keycode::S)),
+    ftxui::Event::Character(keycode_to_char(Keycode::T)),
+    ftxui::Event::Character(keycode_to_char(Keycode::U)),
+    ftxui::Event::Character(keycode_to_char(Keycode::V)),
+    ftxui::Event::Character(keycode_to_char(Keycode::W)),
+    ftxui::Event::Character(keycode_to_char(Keycode::X)),
+    ftxui::Event::Character(keycode_to_char(Keycode::Y)),
+    ftxui::Event::Character(keycode_to_char(Keycode::Z)),
+};
 
 class Shortcut {
 public:
@@ -99,6 +158,17 @@ public:
                 keycode_map[keycode_to_integral(shortcut.keycode)] = KeycodeMapEntry { &help, &shortcut };
             }
         }
+    }
+    bool handle_keypress(Keycode keycode) {
+        KeycodeMapEntry entry = keycode_map[keycode_to_integral(keycode)];
+
+        if (entry.help != nullptr || entry.shortcut != nullptr) {
+            assert(entry.help == nullptr && entry.shortcut == nullptr);
+            entry.shortcut->apply();
+            return true;
+        }
+
+        return false;
     }
 };
 
@@ -169,7 +239,7 @@ private:
                 shortcut_elements.push_back(ftxui::text((*help.title) + " "));
             }
             for (const Shortcut& shortcut : help.shortcuts) {
-                shortcut_elements.push_back(ftxui::text(std::string("[") + static_cast<char>(shortcut.keycode) + "] " + shortcut.title + " ") | ftxui::dim);
+                shortcut_elements.push_back(ftxui::text(std::string("[") + keycode_to_char(shortcut.keycode) + "] " + shortcut.title + " ") | ftxui::dim);
             }
         }
         return ftxui::hbox(shortcut_elements);
@@ -215,10 +285,15 @@ public:
         }) };
 
         return ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
-            if (event == ftxui::Event::Character('q')) {
-                return true;
+            for (std::size_t i = 0; i < keycode_events.size(); i++) {
+                if (event == keycode_events[i]) {
+                    if (log_file) {
+                        log_file << "keypress: " << keycode_to_char(integral_to_keycode(i)) << std::endl;
+                    }
+                    return consolidated_help->handle_keypress(integral_to_keycode(i));
+                }
             }
-          return false;
+            return false;
         });
     }
 };
