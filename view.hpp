@@ -1,11 +1,15 @@
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
 #include <functional>
 #include <array>
 #include <cassert>
+
+#include <boost/asio.hpp>
+#include <boost/asio/any_io_executor.hpp>
 
 #include "ftxui/component/app.hpp"
 #include "ftxui/component/component_base.hpp"
@@ -109,7 +113,8 @@ inline const std::array<ftxui::Event, keycode_to_integral(Keycode::MAX) + 1> key
 class CommandRuntime {
 public:
     virtual void info(std::string_view text) = 0;
-    virtual void error(std::string_view text) = 0;
+    virtual void error_warn(std::string_view text) = 0;
+    virtual void error_fail(std::string_view text) = 0;
     virtual ~CommandRuntime() = default;
 };
 
@@ -234,21 +239,45 @@ public:
 };
 
 class RootView : public View {
+public:
+    enum class ToastVariant {
+        INFO,
+        ERROR_WARN,
+        ERROR_FAIL
+    };
+    class Toast {
+    public:
+        const std::string message;
+        const ToastVariant variant;
+        Toast(std::string message, ToastVariant variant) : message(message), variant(variant) {}
+    };
 private:
     class RootViewCommandRuntime : public CommandRuntime {
+        RootView& view;
+    public:
+        RootViewCommandRuntime(RootView& view) : view(view) { }
         virtual void info(std::string_view text) override {
+            view.toast({ std::string(text), ToastVariant::INFO });
             if (log_file) {
                 log_file << "info: " << text << std::endl;
             }
         }
-        virtual void error(std::string_view text) override {
+        virtual void error_warn(std::string_view text) override {
+            view.toast({ std::string(text), ToastVariant::ERROR_WARN });
             if (log_file) {
-                log_file << "error: " << text << std::endl;
+                log_file << "error_warn: " << text << std::endl;
+            }
+        }
+        virtual void error_fail(std::string_view text) override {
+            view.toast({ std::string(text), ToastVariant::ERROR_FAIL });
+            if (log_file) {
+                log_file << "error_fail: " << text << std::endl;
             }
         }
     };
 
     int tab_index = 0;
+    ftxui::App& app;
     std::vector<std::shared_ptr<View>> tabs_value;
     std::vector<std::string> tab_entries;
     ftxui::Component tab_menu;
@@ -256,6 +285,9 @@ private:
     ftxui::Component tab_content;
     ftxui::Component container;
     std::optional<ConsolidatedHelp> consolidated_help;
+    boost::asio::any_io_executor executor;
+    boost::asio::steady_timer timer;
+    std::optional<Toast> toast_value;
     RootViewCommandRuntime command_runtime;
 
     static ftxui::Element render_consolidated_help(const ConsolidatedHelp& consolidated_help) {
@@ -272,13 +304,45 @@ private:
         }
         return ftxui::hbox(shortcut_elements);
     }
+    static ftxui::Element render_toast(const Toast& toast_value) {
+        ftxui::Element element { ftxui::text(toast_value.message) };
+        switch (toast_value.variant) {
+            case ToastVariant::INFO:
+                return element;
+            case ToastVariant::ERROR_WARN:
+                return element | color(ftxui::Color::DarkOrange);
+            case ToastVariant::ERROR_FAIL:
+                return element | color(ftxui::Color::IndianRed1);
+        }
+    }
 public:
+    explicit RootView(ftxui::App& app, boost::asio::any_io_executor executor) : app(app), executor(executor), timer(executor), command_runtime(*this) { }
     virtual std::vector<std::shared_ptr<View>> tabs() = 0;
     virtual std::shared_ptr<View> active_child() override {
         if (tab_index >= 0 && tab_index < tabs_value.size()) {
             return tabs_value[tab_index];
         }
         return nullptr;
+    }
+    virtual std::chrono::milliseconds toast_duration() {
+        return std::chrono::milliseconds(2000);
+    }
+    virtual void toast(const Toast& toast) {
+        toast_value.emplace(toast);
+        timer.expires_after(toast_duration());
+        timer.async_wait([&](const boost::system::error_code& ec) {
+            if (!ec) {
+                app.Post([&] {
+                    toast_value.reset();
+                    app.PostEvent(ftxui::Event::Custom);
+                });
+            }
+        });
+    }
+    virtual Help help() override {
+        return { "App", {
+            { Keycode::Q, { "quit", [&](CommandRuntime& rt) { app.Exit(); } } },
+        } };
     }
     virtual ftxui::Component renderer() override {
         tabs_value = tabs();
@@ -308,7 +372,7 @@ public:
                 tab_menu->Render(),
                 tab_content->Render() | ftxui::flex,
                 ftxui::separator() | color(ftxui::Color::GrayDark),
-                render_consolidated_help(*consolidated_help) | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 1)
+                (toast_value ? render_toast(*toast_value) : render_consolidated_help(*consolidated_help)) | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 1)
             });
         }) };
 

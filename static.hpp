@@ -21,7 +21,7 @@ private:
     std::string _title;
     std::vector<std::shared_ptr<View>> _tabs;
 public:
-    StaticRootView(std::string title, std::vector<std::shared_ptr<View>> tabs) : _title(std::move(title)), _tabs(std::move(tabs)) { }
+    StaticRootView(ftxui::App& app, boost::asio::any_io_executor executor, std::string title, std::vector<std::shared_ptr<View>> tabs) : RootView(app, executor), _title(std::move(title)), _tabs(std::move(tabs)) { }
     virtual std::vector<std::shared_ptr<View>> tabs() override {
         return _tabs;
     }

@@ -62,6 +62,7 @@ class NestedDummyListView : public ListView {
 
 class DummyRootView : public RootView {
 public:
+    explicit DummyRootView(ftxui::App &app, boost::asio::any_io_executor executor) : RootView(app, executor) {}
     virtual std::vector<std::shared_ptr<View>> tabs() override {
         return {
             std::make_shared<NestedDummyListView>(),
@@ -72,9 +73,11 @@ public:
         return "dummy root " + std::to_string(dummy_random());
     }
     virtual Help help() override {
-        return { "Root", {
-            { Keycode::R, { "hi", [](CommandRuntime& rt) {} } }
-        } };
+        std::vector<Shortcut> shortcuts { RootView::help().shortcuts };
+        shortcuts.push_back({ Keycode::E, { "error", [](CommandRuntime& rt) { rt.error_fail("error fail"); } }});
+        shortcuts.push_back({ Keycode::W, { "warn", [](CommandRuntime& rt) { rt.error_warn("error warn"); } }});
+        shortcuts.push_back({ Keycode::I, { "info", [](CommandRuntime& rt) { rt.info("info"); } }});
+        return { "Dummy Root", shortcuts };
     }
 };
 
