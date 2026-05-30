@@ -25,7 +25,7 @@ public:
     }
     virtual Help help() override {
         return { "View", {
-            { Keycode::F, "foo", [&] { if (log_file) { log_file << "hello" << std::endl; } } }
+            { Keycode::F, { "foo", [&](CommandRuntime& rt) { if (log_file) { log_file << "hello" << std::endl; } } } }
         } };
     }
 };
@@ -55,7 +55,7 @@ class NestedDummyListView : public ListView {
     }
     virtual Help help() override {
         return { "Nested List", {
-            { Keycode::X, "xx", [] {} }
+            { Keycode::X, { "xx", [](CommandRuntime& rt) {} } }
         } };
     }
 };
@@ -73,7 +73,7 @@ public:
     }
     virtual Help help() override {
         return { "Root", {
-            { Keycode::R, "hi", [] {} }
+            { Keycode::R, { "hi", [](CommandRuntime& rt) {} } }
         } };
     }
 };

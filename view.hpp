@@ -106,12 +106,25 @@ inline const std::array<ftxui::Event, keycode_to_integral(Keycode::MAX) + 1> key
     ftxui::Event::Character(keycode_to_char(Keycode::Z)),
 };
 
+class CommandRuntime {
+public:
+    virtual void info(std::string_view text) = 0;
+    virtual void error(std::string_view text) = 0;
+    virtual ~CommandRuntime() = default;
+};
+
+class Command {
+public:
+    std::string name;
+    std::function<void(CommandRuntime& command_runtime)> execute;
+    Command(std::string name, std::function<void(CommandRuntime& command_runtime)> execute) : name(std::move(name)), execute(std::move(execute)) {}
+};
+
 class Shortcut {
 public:
     Keycode keycode;
-    std::string title;
-    std::function<void()> apply;
-    Shortcut(Keycode keycode, std::string title, std::function<void()> apply) : keycode(keycode), title(std::move(title)), apply(std::move(apply)) { }
+    Command command;
+    Shortcut(Keycode keycode, Command command) : keycode(std::move(keycode)), command(std::move(command)) {}
 };
 
 class Help {
@@ -159,12 +172,12 @@ public:
             }
         }
     }
-    bool handle_keypress(Keycode keycode) {
+    bool handle_keypress(Keycode keycode, CommandRuntime& command_runtime) {
         KeycodeMapEntry entry = keycode_map[keycode_to_integral(keycode)];
 
         if (entry.help != nullptr || entry.shortcut != nullptr) {
-            assert(entry.help == nullptr && entry.shortcut == nullptr);
-            entry.shortcut->apply();
+            assert(entry.help != nullptr && entry.shortcut != nullptr);
+            entry.shortcut->command.execute(command_runtime);
             return true;
         }
 
@@ -222,6 +235,19 @@ public:
 
 class RootView : public View {
 private:
+    class RootViewCommandRuntime : public CommandRuntime {
+        virtual void info(std::string_view text) override {
+            if (log_file) {
+                log_file << "info: " << text << std::endl;
+            }
+        }
+        virtual void error(std::string_view text) override {
+            if (log_file) {
+                log_file << "error: " << text << std::endl;
+            }
+        }
+    };
+
     int tab_index = 0;
     std::vector<std::shared_ptr<View>> tabs_value;
     std::vector<std::string> tab_entries;
@@ -230,16 +256,18 @@ private:
     ftxui::Component tab_content;
     ftxui::Component container;
     std::optional<ConsolidatedHelp> consolidated_help;
+    RootViewCommandRuntime command_runtime;
 
     static ftxui::Element render_consolidated_help(const ConsolidatedHelp& consolidated_help) {
         ftxui::Elements shortcut_elements;
         for (std::size_t i = 0; i < consolidated_help.help_elements.size(); i++) {
             const Help& help { consolidated_help.help_elements[i] };
             if (help.title) {
-                shortcut_elements.push_back(ftxui::text((*help.title) + " "));
+                shortcut_elements.push_back(ftxui::text(*help.title + " ") | color(ftxui::Color::Cyan));
             }
             for (const Shortcut& shortcut : help.shortcuts) {
-                shortcut_elements.push_back(ftxui::text(std::string("[") + keycode_to_char(shortcut.keycode) + "] " + shortcut.title + " ") | ftxui::dim);
+                shortcut_elements.push_back(ftxui::text(std::string() + keycode_to_char(shortcut.keycode) + " ") | ftxui::dim);
+                shortcut_elements.push_back(ftxui::text(shortcut.command.name + " ") | color(ftxui::Color::GrayDark));
             }
         }
         return ftxui::hbox(shortcut_elements);
@@ -273,9 +301,9 @@ public:
                 tab_content,
         });
 
-        consolidated_help.emplace(*this);
-
         auto renderer { ftxui::Renderer(container, [&] {
+            consolidated_help.emplace(*this);
+
             return ftxui::vbox({
                 tab_menu->Render(),
                 tab_content->Render() | ftxui::flex,
@@ -290,7 +318,7 @@ public:
                     if (log_file) {
                         log_file << "keypress: " << keycode_to_char(integral_to_keycode(i)) << std::endl;
                     }
-                    return consolidated_help->handle_keypress(integral_to_keycode(i));
+                    return consolidated_help->handle_keypress(integral_to_keycode(i), command_runtime);
                 }
             }
             return false;
