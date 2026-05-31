@@ -250,16 +250,16 @@ public:
 
 class RootView : public View {
 public:
-    enum class ToastVariant {
+    enum class StatusLineVariant {
         INFO,
         ERROR_WARN,
         ERROR_FAIL
     };
-    class Toast {
+    class StatusLine {
     public:
         const std::string message;
-        const ToastVariant variant;
-        Toast(std::string message, ToastVariant variant) : message(message), variant(variant) {}
+        const StatusLineVariant variant;
+        StatusLine(std::string message, StatusLineVariant variant) : message(message), variant(variant) {}
     };
 private:
     class RootViewCommandRuntime : public CommandRuntime {
@@ -267,19 +267,19 @@ private:
     public:
         RootViewCommandRuntime(RootView& view) : view(view) { }
         virtual void info(std::string_view text) override {
-            view.toast({ std::string(text), ToastVariant::INFO });
+            view.toast({ std::string(text), StatusLineVariant::INFO });
             if (log_file) {
                 log_file << "info: " << text << std::endl;
             }
         }
         virtual void error_warn(std::string_view text) override {
-            view.toast({ std::string(text), ToastVariant::ERROR_WARN });
+            view.toast({ std::string(text), StatusLineVariant::ERROR_WARN });
             if (log_file) {
                 log_file << "error_warn: " << text << std::endl;
             }
         }
         virtual void error_fail(std::string_view text) override {
-            view.toast({ std::string(text), ToastVariant::ERROR_FAIL });
+            view.toast({ std::string(text), StatusLineVariant::ERROR_FAIL });
             if (log_file) {
                 log_file << "error_fail: " << text << std::endl;
             }
@@ -299,7 +299,7 @@ private:
     std::optional<MultiCommandSet> multi_command_set;
     boost::asio::any_io_executor executor;
     boost::asio::steady_timer timer;
-    std::optional<Toast> toast_value;
+    std::optional<StatusLine> toast_value;
     RootViewCommandRuntime command_runtime;
 
     static ftxui::Element render_help(const MultiCommandSet& multi_command_set) {
@@ -318,14 +318,14 @@ private:
         }
         return ftxui::hbox(shortcut_elements);
     }
-    static ftxui::Element render_toast(const Toast& toast_value) {
+    static ftxui::Element render_toast(const StatusLine& toast_value) {
         ftxui::Element element { ftxui::text(toast_value.message) };
         switch (toast_value.variant) {
-            case ToastVariant::INFO:
+            case StatusLineVariant::INFO:
                 return element;
-            case ToastVariant::ERROR_WARN:
+            case StatusLineVariant::ERROR_WARN:
                 return element | color(ftxui::Color::DarkOrange);
-            case ToastVariant::ERROR_FAIL:
+            case StatusLineVariant::ERROR_FAIL:
                 return element | color(ftxui::Color::IndianRed1);
         }
     }
@@ -339,9 +339,9 @@ public:
         return nullptr;
     }
     virtual std::chrono::milliseconds toast_duration() {
-        return std::chrono::milliseconds(2000);
+        return std::chrono::milliseconds(1500);
     }
-    virtual void toast(const Toast& toast) {
+    virtual void toast(const StatusLine& toast) {
         toast_value.emplace(toast);
         timer.expires_after(toast_duration());
         timer.async_wait([&](const boost::system::error_code& ec) {
