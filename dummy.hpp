@@ -23,9 +23,9 @@ public:
     virtual std::string title() override {
         return "dummy " + std::to_string(r);
     }
-    virtual Help help() override {
+    virtual CommandSet commands() override {
         return { "View", {
-            { Keycode::F, { "foo", [&](CommandRuntime& rt) { if (log_file) { log_file << "hello" << std::endl; } } } }
+            { "foo", Keycode::F, [&](CommandRuntime& rt) { if (log_file) { log_file << "hello" << std::endl; } } }
         } };
     }
 };
@@ -53,9 +53,9 @@ class NestedDummyListView : public ListView {
     virtual std::string title() override {
         return "nested dummy list " + std::to_string(dummy_random());
     }
-    virtual Help help() override {
+    virtual CommandSet commands() override {
         return { "Nested List", {
-            { Keycode::X, { "xx", [](CommandRuntime& rt) {} } }
+            { "xx", Keycode::X, [](CommandRuntime& rt) {} }
         } };
     }
 };
@@ -72,12 +72,13 @@ public:
     virtual std::string title() override {
         return "dummy root " + std::to_string(dummy_random());
     }
-    virtual Help help() override {
-        std::vector<Shortcut> shortcuts { RootView::help().shortcuts };
-        shortcuts.push_back({ Keycode::E, { "error", [](CommandRuntime& rt) { rt.error_fail("error fail"); } }});
-        shortcuts.push_back({ Keycode::W, { "warn", [](CommandRuntime& rt) { rt.error_warn("error warn"); } }});
-        shortcuts.push_back({ Keycode::I, { "info", [](CommandRuntime& rt) { rt.info("info"); } }});
-        return { "Dummy Root", shortcuts };
+    virtual CommandSet commands() override {
+        CommandSet result { RootView::commands() };
+        result.title = "Dummy Root";
+        result.commands.emplace_back("error", Keycode::E, [](CommandRuntime& rt) { rt.error_fail("error fail"); });
+        result.commands.emplace_back("warn", Keycode::W, [](CommandRuntime& rt) { rt.error_warn("error warn"); });
+        result.commands.emplace_back("info", Keycode::I, [](CommandRuntime& rt) { rt.info("info"); });
+        return result;
     }
 };
 

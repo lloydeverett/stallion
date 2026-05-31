@@ -120,24 +120,18 @@ public:
 
 class Command {
 public:
-    std::string name;
-    std::function<void(CommandRuntime& command_runtime)> execute;
-    Command(std::string name, std::function<void(CommandRuntime& command_runtime)> execute) : name(std::move(name)), execute(std::move(execute)) {}
+    const std::string name;
+    const std::optional<Keycode> default_keycode;
+    const std::function<void(CommandRuntime& command_runtime)> execute;
+    Command(std::string name, std::function<void(CommandRuntime& command_runtime)> execute) : name(std::move(name)), default_keycode(std::nullopt), execute(std::move(execute)) {}
+    Command(std::string name, Keycode default_keycode, std::function<void(CommandRuntime& command_runtime)> execute) : name(std::move(name)), default_keycode(default_keycode), execute(std::move(execute)) {}
 };
 
-class Shortcut {
+class CommandSet {
 public:
-    Keycode keycode;
-    Command command;
-    Shortcut(Keycode keycode, Command command) : keycode(std::move(keycode)), command(std::move(command)) {}
-};
-
-class Help {
-public:
-    const std::optional<std::string> title;
-    const std::vector<Shortcut> shortcuts;
-    Help(std::optional<std::string> title, std::vector<Shortcut> shortcuts) : title(std::move(title)), shortcuts(std::move(shortcuts)) { }
-    Help(std::optional<std::string> title, std::initializer_list<Shortcut> shortcuts) : title(std::move(title)), shortcuts(std::move(shortcuts)) { }
+    std::optional<std::string> title;
+    std::vector<Command> commands;
+    CommandSet(std::optional<std::string> title, std::vector<Command> commands) : title(std::move(title)), commands(std::move(commands)) {}
 };
 
 class View {
@@ -147,45 +141,52 @@ public:
     virtual std::shared_ptr<View> active_child() {
         return nullptr;
     }
-    virtual Help help() {
+    virtual CommandSet commands() {
         return { std::nullopt, { } };
     };
     virtual ~View() = default;
 };
 
-class ConsolidatedHelp {
+class MultiCommandSet {
 private:
     struct KeycodeMapEntry {
-        const Help* help { nullptr };
-        const Shortcut* shortcut { nullptr };
+        const CommandSet* command_set { nullptr };
+        const Command* command { nullptr };
     };
     std::array<KeycodeMapEntry, keycode_to_integral(Keycode::MAX) + 1> keycode_map;
-    static std::vector<Help> init_help_elements(View& root_view) {
-        std::vector<Help> result;
-        result.push_back(root_view.help());
+    static std::vector<CommandSet> init_command_set_elements(View& root_view) {
+        std::vector<CommandSet> result;
+        result.push_back(root_view.commands());
         for (auto view { root_view.active_child() }; view; view = view->active_child()) {
-            result.push_back(view->help());
+            result.push_back(view->commands());
         }
         return result;
     }
 public:
-    const std::vector<Help> help_elements;
-    ConsolidatedHelp(View& view) : help_elements(init_help_elements(view)) {
-        for (const Help& help : help_elements) {
-            for (const Shortcut& shortcut : help.shortcuts) {
-                keycode_map[keycode_to_integral(shortcut.keycode)] = KeycodeMapEntry { &help, &shortcut };
+    const std::vector<CommandSet> command_sets;
+    MultiCommandSet(View& view) : command_sets(init_command_set_elements(view)) {
+        for (const CommandSet& command_set : command_sets) {
+            for (const Command& command : command_set.commands) {
+                if (command.default_keycode) {
+                    keycode_map[keycode_to_integral(*command.default_keycode)] = KeycodeMapEntry { &command_set, &command };
+                }
             }
         }
     }
-    bool handle_keypress(Keycode keycode, CommandRuntime& command_runtime) {
+    const Command* lookup_keypress(Keycode keycode) const {
         KeycodeMapEntry entry = keycode_map[keycode_to_integral(keycode)];
-
-        if (entry.help != nullptr || entry.shortcut != nullptr) {
-            assert(entry.help != nullptr && entry.shortcut != nullptr);
-            entry.shortcut->command.execute(command_runtime);
+        if (entry.command_set != nullptr || entry.command != nullptr) {
+            assert(entry.command_set != nullptr && entry.command != nullptr);
+            return entry.command;
+        }
+        return nullptr;
+    }
+    bool handle_keypress(Keycode keycode, CommandRuntime& command_runtime) {
+        const Command* command = lookup_keypress(keycode);
+        if (command != nullptr) {
+            command->execute(command_runtime);
             return true;
         }
-
         return false;
     }
 };
@@ -284,22 +285,24 @@ private:
     ftxui::Components tab_content_components;
     ftxui::Component tab_content;
     ftxui::Component container;
-    std::optional<ConsolidatedHelp> consolidated_help;
+    std::optional<MultiCommandSet> multi_command_set;
     boost::asio::any_io_executor executor;
     boost::asio::steady_timer timer;
     std::optional<Toast> toast_value;
     RootViewCommandRuntime command_runtime;
 
-    static ftxui::Element render_consolidated_help(const ConsolidatedHelp& consolidated_help) {
+    static ftxui::Element render_help(const MultiCommandSet& multi_command_set) {
         ftxui::Elements shortcut_elements;
-        for (std::size_t i = 0; i < consolidated_help.help_elements.size(); i++) {
-            const Help& help { consolidated_help.help_elements[i] };
-            if (help.title) {
-                shortcut_elements.push_back(ftxui::text(*help.title + " ") | color(ftxui::Color::Cyan));
+        for (std::size_t i = 0; i < multi_command_set.command_sets.size(); i++) {
+            const CommandSet& command_set { multi_command_set.command_sets[i] };
+            if (command_set.title) {
+                shortcut_elements.push_back(ftxui::text(*command_set.title + " ") | color(ftxui::Color::Cyan));
             }
-            for (const Shortcut& shortcut : help.shortcuts) {
-                shortcut_elements.push_back(ftxui::text(std::string() + keycode_to_char(shortcut.keycode) + " ") | ftxui::dim);
-                shortcut_elements.push_back(ftxui::text(shortcut.command.name + " ") | color(ftxui::Color::GrayDark));
+            for (const Command& command : command_set.commands) {
+                if (command.default_keycode && multi_command_set.lookup_keypress(*command.default_keycode) == &command) {
+                    shortcut_elements.push_back(ftxui::text(std::string() + keycode_to_char(*command.default_keycode) + " ") | ftxui::dim);
+                    shortcut_elements.push_back(ftxui::text(command.name + " ") | color(ftxui::Color::GrayDark));
+                }
             }
         }
         return ftxui::hbox(shortcut_elements);
@@ -316,6 +319,7 @@ private:
         }
     }
 public:
+    Command quit_command { "quit", [&](CommandRuntime& rt) { app.Exit(); } } ;
     explicit RootView(ftxui::App& app, boost::asio::any_io_executor executor) : app(app), executor(executor), timer(executor), command_runtime(*this) { }
     virtual std::vector<std::shared_ptr<View>> tabs() = 0;
     virtual std::shared_ptr<View> active_child() override {
@@ -339,9 +343,9 @@ public:
             }
         });
     }
-    virtual Help help() override {
+    virtual CommandSet commands() override {
         return { "App", {
-            { Keycode::Q, { "quit", [&](CommandRuntime& rt) { app.Exit(); } } },
+            { "quit", Keycode::Q, [&](CommandRuntime& rt) { app.Exit(); } },
         } };
     }
     virtual ftxui::Component renderer() override {
@@ -366,13 +370,13 @@ public:
         });
 
         auto renderer { ftxui::Renderer(container, [&] {
-            consolidated_help.emplace(*this);
+            multi_command_set.emplace(*this);
 
             return ftxui::vbox({
                 tab_menu->Render(),
                 tab_content->Render() | ftxui::flex,
                 ftxui::separator() | color(ftxui::Color::GrayDark),
-                (toast_value ? render_toast(*toast_value) : render_consolidated_help(*consolidated_help)) | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 1)
+                (toast_value ? render_toast(*toast_value) : render_help(*multi_command_set)) | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 1)
             });
         }) };
 
@@ -382,7 +386,7 @@ public:
                     if (log_file) {
                         log_file << "keypress: " << keycode_to_char(integral_to_keycode(i)) << std::endl;
                     }
-                    return consolidated_help->handle_keypress(integral_to_keycode(i), command_runtime);
+                    return multi_command_set->handle_keypress(integral_to_keycode(i), command_runtime);
                 }
             }
             return false;
