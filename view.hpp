@@ -22,10 +22,9 @@
 
 #include "log.hpp"
 
-enum class Keycode {
+enum class Keycode : std::size_t {
     // omit H, J, K, L to allow for vim-like navigation
-    MIN = 0,
-    A = Keycode::MIN,
+    A = 0,
     B,
     C,
     D,
@@ -47,67 +46,75 @@ enum class Keycode {
     X,
     Y,
     Z,
-    MAX = Keycode::Z,
+    COLON,
+    RETURN,
+    MAX = Keycode::RETURN,
 };
 
-constexpr char keycode_to_char(Keycode keycode) {
+constexpr const char* keycode_display_text(Keycode keycode) {
     switch (keycode) {
-        case Keycode::A: return 'a';
-        case Keycode::B: return 'b';
-        case Keycode::C: return 'c';
-        case Keycode::D: return 'd';
-        case Keycode::E: return 'e';
-        case Keycode::F: return 'f';
-        case Keycode::G: return 'g';
-        case Keycode::I: return 'i';
-        case Keycode::M: return 'm';
-        case Keycode::N: return 'n';
-        case Keycode::O: return 'o';
-        case Keycode::P: return 'p';
-        case Keycode::Q: return 'q';
-        case Keycode::R: return 'r';
-        case Keycode::S: return 's';
-        case Keycode::T: return 't';
-        case Keycode::U: return 'u';
-        case Keycode::V: return 'v';
-        case Keycode::W: return 'w';
-        case Keycode::X: return 'x';
-        case Keycode::Y: return 'y';
-        case Keycode::Z: return 'z';
+        case Keycode::A: return "a";
+        case Keycode::B: return "b";
+        case Keycode::C: return "c";
+        case Keycode::D: return "d";
+        case Keycode::E: return "e";
+        case Keycode::F: return "f";
+        case Keycode::G: return "g";
+        case Keycode::I: return "i";
+        case Keycode::M: return "m";
+        case Keycode::N: return "n";
+        case Keycode::O: return "o";
+        case Keycode::P: return "p";
+        case Keycode::Q: return "q";
+        case Keycode::R: return "r";
+        case Keycode::S: return "s";
+        case Keycode::T: return "t";
+        case Keycode::U: return "u";
+        case Keycode::V: return "v";
+        case Keycode::W: return "w";
+        case Keycode::X: return "x";
+        case Keycode::Y: return "y";
+        case Keycode::Z: return "z";
+        case Keycode::COLON: return ":";
+        case Keycode::RETURN: return "↩";
     }
 }
 
 constexpr std::size_t keycode_to_integral(Keycode keycode) {
-    return static_cast<std::size_t>(keycode) - static_cast<std::size_t>(Keycode::MIN);
+    return static_cast<std::size_t>(keycode);
 }
 
 constexpr Keycode integral_to_keycode(std::size_t integral) {
-    return static_cast<Keycode>(integral + static_cast<std::size_t>(Keycode::MIN));
+    return static_cast<Keycode>(integral);
 }
 
-inline const std::array<ftxui::Event, keycode_to_integral(Keycode::MAX) + 1> keycode_events {
-    ftxui::Event::Character(keycode_to_char(Keycode::A)),
-    ftxui::Event::Character(keycode_to_char(Keycode::B)),
-    ftxui::Event::Character(keycode_to_char(Keycode::C)),
-    ftxui::Event::Character(keycode_to_char(Keycode::D)),
-    ftxui::Event::Character(keycode_to_char(Keycode::E)),
-    ftxui::Event::Character(keycode_to_char(Keycode::F)),
-    ftxui::Event::Character(keycode_to_char(Keycode::G)),
-    ftxui::Event::Character(keycode_to_char(Keycode::I)),
-    ftxui::Event::Character(keycode_to_char(Keycode::M)),
-    ftxui::Event::Character(keycode_to_char(Keycode::N)),
-    ftxui::Event::Character(keycode_to_char(Keycode::O)),
-    ftxui::Event::Character(keycode_to_char(Keycode::P)),
-    ftxui::Event::Character(keycode_to_char(Keycode::Q)),
-    ftxui::Event::Character(keycode_to_char(Keycode::R)),
-    ftxui::Event::Character(keycode_to_char(Keycode::S)),
-    ftxui::Event::Character(keycode_to_char(Keycode::T)),
-    ftxui::Event::Character(keycode_to_char(Keycode::U)),
-    ftxui::Event::Character(keycode_to_char(Keycode::V)),
-    ftxui::Event::Character(keycode_to_char(Keycode::W)),
-    ftxui::Event::Character(keycode_to_char(Keycode::X)),
-    ftxui::Event::Character(keycode_to_char(Keycode::Y)),
-    ftxui::Event::Character(keycode_to_char(Keycode::Z)),
+inline const std::array<ftxui::Event, keycode_to_integral(Keycode::MAX) + 1> get_keycode_events() {
+    return {
+        ftxui::Event::Character('a'),
+        ftxui::Event::Character('b'),
+        ftxui::Event::Character('c'),
+        ftxui::Event::Character('d'),
+        ftxui::Event::Character('e'),
+        ftxui::Event::Character('f'),
+        ftxui::Event::Character('g'),
+        ftxui::Event::Character('i'),
+        ftxui::Event::Character('m'),
+        ftxui::Event::Character('n'),
+        ftxui::Event::Character('o'),
+        ftxui::Event::Character('p'),
+        ftxui::Event::Character('q'),
+        ftxui::Event::Character('r'),
+        ftxui::Event::Character('s'),
+        ftxui::Event::Character('t'),
+        ftxui::Event::Character('u'),
+        ftxui::Event::Character('v'),
+        ftxui::Event::Character('w'),
+        ftxui::Event::Character('x'),
+        ftxui::Event::Character('y'),
+        ftxui::Event::Character('z'),
+        ftxui::Event::Character(':'),
+        ftxui::Event::Return,
+    };
 };
 
 class CommandRuntime {
@@ -211,11 +218,13 @@ public:
     virtual ftxui::Component renderer() override {
         items_value = items();
 
+        item_entries.clear();
         item_entries.reserve(items_value.size());
         for (auto item : items_value) {
             item_entries.push_back(item->title());
         }
 
+        item_content_components.clear();
         item_content_components.reserve(items_value.size());
         for (auto item : items_value) {
             item_content_components.push_back(item->renderer());
@@ -279,12 +288,14 @@ private:
 
     int tab_index = 0;
     ftxui::App& app;
+    std::array<ftxui::Event, keycode_to_integral(Keycode::MAX) + 1> keycode_events;
     std::vector<std::shared_ptr<View>> tabs_value;
     std::vector<std::string> tab_entries;
     ftxui::Component tab_menu;
     ftxui::Components tab_content_components;
     ftxui::Component tab_content;
     ftxui::Component container;
+    ftxui::Component renderer_container { ftxui::Container::Stacked({}) };
     std::optional<MultiCommandSet> multi_command_set;
     boost::asio::any_io_executor executor;
     boost::asio::steady_timer timer;
@@ -300,7 +311,7 @@ private:
             }
             for (const Command& command : command_set.commands) {
                 if (command.default_keycode && multi_command_set.lookup_keypress(*command.default_keycode) == &command) {
-                    shortcut_elements.push_back(ftxui::text(std::string() + keycode_to_char(*command.default_keycode) + " ") | ftxui::dim);
+                    shortcut_elements.push_back(ftxui::text(std::string(keycode_display_text(*command.default_keycode)) + " ") | ftxui::dim);
                     shortcut_elements.push_back(ftxui::text(command.name + " ") | color(ftxui::Color::GrayDark));
                 }
             }
@@ -319,8 +330,7 @@ private:
         }
     }
 public:
-    Command quit_command { "quit", [&](CommandRuntime& rt) { app.Exit(); } } ;
-    explicit RootView(ftxui::App& app, boost::asio::any_io_executor executor) : app(app), executor(executor), timer(executor), command_runtime(*this) { }
+    explicit RootView(ftxui::App& app, boost::asio::any_io_executor executor) : app(app), executor(executor), timer(executor), command_runtime(*this), keycode_events(get_keycode_events()) { }
     virtual std::vector<std::shared_ptr<View>> tabs() = 0;
     virtual std::shared_ptr<View> active_child() override {
         if (tab_index >= 0 && tab_index < tabs_value.size()) {
@@ -345,17 +355,21 @@ public:
     }
     virtual CommandSet commands() override {
         return { "App", {
+            { "command", Keycode::RETURN, [&](CommandRuntime& rt) { rt.info("command"); } },
             { "quit", Keycode::Q, [&](CommandRuntime& rt) { app.Exit(); } },
+            { "refresh all", Keycode::R, [&](CommandRuntime& rt) { renderer(); } },
         } };
     }
     virtual ftxui::Component renderer() override {
         tabs_value = tabs();
 
+        tab_entries.clear();
         tab_entries.reserve(tabs_value.size());
         for (auto tab : tabs_value) {
             tab_entries.push_back(tab->title());
         }
 
+        tab_content_components.clear();
         tab_content_components.reserve(tabs_value.size());
         for (auto tab : tabs_value) {
             tab_content_components.push_back(tab->renderer());
@@ -380,17 +394,22 @@ public:
             });
         }) };
 
-        return ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
+        renderer = ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
             for (std::size_t i = 0; i < keycode_events.size(); i++) {
                 if (event == keycode_events[i]) {
                     if (log_file) {
-                        log_file << "keypress: " << keycode_to_char(integral_to_keycode(i)) << std::endl;
+                        log_file << "keypress: " << keycode_display_text(integral_to_keycode(i)) << std::endl;
                     }
                     return multi_command_set->handle_keypress(integral_to_keycode(i), command_runtime);
                 }
             }
             return false;
         });
+
+        renderer_container->DetachAllChildren();
+        renderer_container->Add(renderer);
+
+        return renderer_container;
     }
 };
 
