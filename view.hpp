@@ -154,6 +154,24 @@ public:
     virtual ~View() = default;
 };
 
+class DelegateView : public View {
+protected:
+    virtual View& delegate() = 0; // note: child class is responsible for delegate lifetime
+public:
+    virtual std::string title() override {
+        return delegate().title();
+    }
+    virtual ftxui::Component renderer() override {
+        return delegate().renderer();
+    }
+    virtual std::shared_ptr<View> active_child() override {
+        return delegate().active_child();
+    }
+    virtual CommandSet commands() override {
+        return delegate().commands();
+    }
+};
+
 class MultiCommandSet {
 private:
     struct KeycodeMapEntry {
@@ -268,21 +286,15 @@ private:
         RootViewCommandRuntime(RootView& view) : view(view) { }
         virtual void info(std::string_view text) override {
             view.toast({ std::string(text), StatusLineVariant::INFO });
-            if (log_file) {
-                log_file << "info: " << text << std::endl;
-            }
+            LOG_DEBUG() << "info: " << text;
         }
         virtual void error_warn(std::string_view text) override {
             view.toast({ std::string(text), StatusLineVariant::ERROR_WARN });
-            if (log_file) {
-                log_file << "error_warn: " << text << std::endl;
-            }
+            LOG_DEBUG() << "error_warn: " << text;
         }
         virtual void error_fail(std::string_view text) override {
             view.toast({ std::string(text), StatusLineVariant::ERROR_FAIL });
-            if (log_file) {
-                log_file << "error_fail: " << text << std::endl;
-            }
+            LOG_DEBUG() << "error_fail: " << text;
         }
     };
 
@@ -397,9 +409,7 @@ public:
         renderer = ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
             for (std::size_t i = 0; i < keycode_events.size(); i++) {
                 if (event == keycode_events[i]) {
-                    if (log_file) {
-                        log_file << "keypress: " << keycode_display_text(integral_to_keycode(i)) << std::endl;
-                    }
+                    LOG_DEBUG() << "keypress: " << keycode_display_text(integral_to_keycode(i));
                     return multi_command_set->handle_keypress(integral_to_keycode(i), command_runtime);
                 }
             }

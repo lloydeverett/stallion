@@ -25,7 +25,7 @@ public:
     }
     virtual CommandSet commands() override {
         return { "View", {
-            { "foo", Keycode::F, [&](CommandRuntime& rt) { if (log_file) { log_file << "hello" << std::endl; } } }
+            { "foo", Keycode::F, [&](CommandRuntime& rt) { LOG_DEBUG() << "hello"; } }
         } };
     }
 };
