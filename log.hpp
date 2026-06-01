@@ -12,29 +12,27 @@ enum class LogLevel { DEBUG, INFO, WARN, ERROR };
 class TinyLogger {
 public:
     TinyLogger(LogLevel level, const char* file, int line) : msgLevel(level) {
-        // Automatically prepend metadata to the buffer
+        // automatically prepend metadata to the buffer
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
         os << "[" << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S")
            << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
-           << "[" << levelToString(level) << "] "
+           << "[" << level_to_string(level) << "] "
            << "[" << file << ":" << line << "] ";
     }
 
-    // Deconstruct and flush out everything atomically to prevent interweaving threads
     ~TinyLogger() {
-        static std::mutex logMutex;
-        static std::ofstream logFile("stallion.log", std::ios::app);
-
-        std::lock_guard<std::mutex> lock(logMutex);
-        if (logFile.is_open()) {
-            logFile << os.str() << std::endl;
+        // deconstruct and flush out everything atomically to prevent interweaving threads
+        static std::mutex log_mutex;
+        static std::ofstream log_file("stallion.log", std::ios::app);
+        std::lock_guard<std::mutex> lock(log_mutex);
+        if (log_file.is_open()) {
+            log_file << os.str() << std::endl;
         }
     }
 
-    // Expose stream capability
     template <typename T>
     TinyLogger& operator<<(const T& msg) {
         os << msg;
@@ -45,7 +43,7 @@ private:
     std::ostringstream os;
     LogLevel msgLevel;
 
-    const char* levelToString(LogLevel level) {
+    const char* level_to_string(LogLevel level) {
         switch (level) {
             case LogLevel::DEBUG: return "DEBUG";
             case LogLevel::INFO:  return "INFO";
