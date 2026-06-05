@@ -25,7 +25,7 @@ public:
     }
     virtual CommandSet commands() override {
         return { "View", {
-            { "foo", Keycode::F, [&](CommandRuntime& rt) { LOG_DEBUG() << "hello"; } }
+            { "foo", Keycode::F, [&](CommandRuntime& rt) { UI_LOG_DEBUG() << "hello"; } }
         } };
     }
 };
@@ -62,7 +62,7 @@ class NestedDummyListView : public ListView {
 
 class DummyRootView : public RootView {
 public:
-    explicit DummyRootView(ftxui::App &app, boost::asio::any_io_executor executor) : RootView(app, executor) {}
+    explicit DummyRootView(InitInteractive init_interactive) : RootView(init_interactive) {}
     virtual std::vector<std::shared_ptr<View>> tabs() override {
         return {
             std::make_shared<NestedDummyListView>(),

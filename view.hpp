@@ -279,6 +279,10 @@ public:
         const StatusLineVariant variant;
         StatusLine(std::string message, StatusLineVariant variant) : message(message), variant(variant) {}
     };
+    struct InitInteractive {
+        ftxui::App& app;
+        boost::asio::any_io_executor async_executor;
+    };
 private:
     class RootViewCommandRuntime : public CommandRuntime {
         RootView& view;
@@ -286,15 +290,15 @@ private:
         RootViewCommandRuntime(RootView& view) : view(view) { }
         virtual void info(std::string_view text) override {
             view.toast({ std::string(text), StatusLineVariant::INFO });
-            LOG_DEBUG() << "info: " << text;
+            UI_LOG_DEBUG() << "info: " << text;
         }
         virtual void error_warn(std::string_view text) override {
             view.toast({ std::string(text), StatusLineVariant::ERROR_WARN });
-            LOG_DEBUG() << "error_warn: " << text;
+            UI_LOG_DEBUG() << "error_warn: " << text;
         }
         virtual void error_fail(std::string_view text) override {
             view.toast({ std::string(text), StatusLineVariant::ERROR_FAIL });
-            LOG_DEBUG() << "error_fail: " << text;
+            UI_LOG_DEBUG() << "error_fail: " << text;
         }
     };
 
@@ -342,7 +346,7 @@ private:
         }
     }
 public:
-    explicit RootView(ftxui::App& app, boost::asio::any_io_executor executor) : app(app), executor(executor), timer(executor), command_runtime(*this), keycode_events(get_keycode_events()) { }
+    explicit RootView(InitInteractive init_interactive) : app(init_interactive.app), executor(init_interactive.async_executor), timer(executor), command_runtime(*this), keycode_events(get_keycode_events()) { }
     virtual std::vector<std::shared_ptr<View>> tabs() = 0;
     virtual std::shared_ptr<View> active_child() override {
         if (tab_index >= 0 && tab_index < tabs_value.size()) {
@@ -373,6 +377,8 @@ public:
         } };
     }
     virtual ftxui::Component renderer() override {
+        renderer_container->DetachAllChildren();
+
         tabs_value = tabs();
 
         tab_entries.clear();
@@ -409,14 +415,13 @@ public:
         renderer = ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
             for (std::size_t i = 0; i < keycode_events.size(); i++) {
                 if (event == keycode_events[i]) {
-                    LOG_DEBUG() << "keypress: " << keycode_display_text(integral_to_keycode(i));
+                    UI_LOG_DEBUG() << "keypress: " << keycode_display_text(integral_to_keycode(i));
                     return multi_command_set->handle_keypress(integral_to_keycode(i), command_runtime);
                 }
             }
             return false;
         });
 
-        renderer_container->DetachAllChildren();
         renderer_container->Add(renderer);
 
         return renderer_container;

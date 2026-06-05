@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.11)
-project(MyFTXUIProject)
+project(stallion)
 
 cmake_policy(SET CMP0156 NEW)
 
@@ -11,7 +11,7 @@ include(FetchContent)
 
 # boost
 set(BOOST_BUILD_SHARED_LIBS OFF)
-set(BOOST_INCLUDE_LIBRARIES process filesystem asio)
+set(BOOST_INCLUDE_LIBRARIES process filesystem asio beast json cobalt)
 set(BOOST_ENABLE_CMAKE ON)
 FetchContent_Declare(
   boost
@@ -29,7 +29,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ftxui)
 
-add_executable(stallion main.cpp)
+add_executable(stallion main.cpp tui.cpp server.cpp)
 target_link_libraries(stallion PRIVATE ftxui::screen ftxui::dom ftxui::component)
-target_link_libraries(stallion PRIVATE Boost::process Boost::filesystem Boost::asio)
+target_link_libraries(stallion PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
 

@@ -1,38 +1,21 @@
-#include <thread>
+#include <string_view>
+#include <functional>
 
-#include <boost/asio.hpp>
-
-#include <ftxui/component/loop.hpp>
-#include "ftxui/component/app.hpp"
-#include "ftxui/component/event.hpp"
-
+#include "view.hpp"
 #include "dummy.hpp"
 
-using namespace ftxui;
+typedef std::function<void(RootView)> RootViewCtor;
 
-int main() {
-  auto screen = App::Fullscreen();
+int server_main(const char* address_str, unsigned short port, const char* doc_root_str, int threads);
 
-  boost::asio::io_context io_ctx;
+int tui_main();
 
-  auto work_guard = boost::asio::make_work_guard(io_ctx);
-
-  DummyRootView root_view { screen, io_ctx.get_executor() };
-
-  auto main_renderer = root_view.renderer();
-
-  std::thread worker_thread([&io_ctx]() {
-      io_ctx.run();
-  });
-
-  Loop loop(&screen, main_renderer);
-  loop.Run();
-
-  io_ctx.stop(); // force exit; work_guard.reset() would wait for unfinished handlers
-
-  if (worker_thread.joinable()) {
-      worker_thread.join();
+int main(int argc, char* argv[]) {
+  if (argc >= 2 && std::string_view(argv[1]) == "--server") {
+      const int server_argc = 5;
+      const char* server_argv[] = { "http-server-awaitable", "0.0.0.0", "8080", ".", "1" };
+      return server_main("0.0.0.0", 8080, ".", 1);
   }
 
-  return 0;
+  return tui_main();
 }

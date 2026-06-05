@@ -55,14 +55,19 @@ private:
 };
 
 #ifndef NDEBUG
-#define LOG_DEBUG() TinyLogger(LogLevel::DEBUG, __FILE__, __LINE__)
-#define LOG_INFO()  TinyLogger(LogLevel::INFO,  __FILE__, __LINE__)
-#define LOG_WARN()  TinyLogger(LogLevel::WARN,  __FILE__, __LINE__)
-#define LOG_ERROR() TinyLogger(LogLevel::ERROR, __FILE__, __LINE__)
+#define UI_LOG_DEBUG() TinyLogger(LogLevel::DEBUG, __FILE__, __LINE__)
+#define UI_LOG_INFO()  TinyLogger(LogLevel::INFO,  __FILE__, __LINE__)
+#define UI_LOG_WARN()  TinyLogger(LogLevel::WARN,  __FILE__, __LINE__)
+#define UI_LOG_ERROR() TinyLogger(LogLevel::ERROR, __FILE__, __LINE__)
 #else
-#define LOG_DEBUG() while(false) std::ostream(nullptr)
-#define LOG_INFO()  while(false) std::ostream(nullptr)
-#define LOG_WARN()  while(false) std::ostream(nullptr)
-#define LOG_ERROR() while(false) std::ostream(nullptr)
+#define UI_LOG_DEBUG() while(false) std::ostream(nullptr)
+#define UI_LOG_INFO()  while(false) std::ostream(nullptr)
+#define UI_LOG_WARN()  while(false) std::ostream(nullptr)
+#define UI_LOG_ERROR() while(false) std::ostream(nullptr)
 #endif
+
+#define SERVER_LOG_DEBUG() TinyLogger(LogLevel::DEBUG, __FILE__, __LINE__)
+#define SERVER_LOG_INFO()  TinyLogger(LogLevel::INFO,  __FILE__, __LINE__)
+#define SERVER_LOG_WARN()  TinyLogger(LogLevel::WARN,  __FILE__, __LINE__)
+#define SERVER_LOG_ERROR() TinyLogger(LogLevel::ERROR, __FILE__, __LINE__)
 
