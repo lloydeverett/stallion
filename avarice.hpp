@@ -18,7 +18,7 @@ template <typename ObjectT>
     requires std::has_virtual_destructor_v<ObjectT>
 struct avarice {
 
-    //  TODO: async APIs using asyncx
+    //  TODO: replace sync APIs with async APIs using asyncx
 
     //  TODO: On any shared_ptr storage, use an async optional.
     //     template <typename T>
@@ -29,6 +29,9 @@ struct avarice {
     //     So the shared ptr should point to an optional lock as well as the optional.
     //     The ref object should also itself keep track of whether IT is holding the relevant lock.
     //     And, if it is, forbid move operations.
+
+    //  TODO: after doing the above: maybe even consider a thread-safe optional class
+    //    could maybe be behind a bool template param
 
     template <typename T>
     class Emplacer
