@@ -19,11 +19,14 @@ public:
 int main() {
     struct CommitRefState {
         std::string x;
-        void emplace(av::Emplacer<MyObject> emplacer) {
+        void emplace(av::Emplacer<MyObject> emplacer) const {
             emplacer("foo");
             //  TODO: Implement
         }
-        void traverse() {
+        void traverse() const & {
+            //  TODO: Implement
+        }
+        void traverse() && {
             //  TODO: Implement
         }
     } state;
