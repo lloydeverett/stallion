@@ -43,6 +43,9 @@ int main() {
     av::Ref b             { av::copying_ref_type<MyObject, CommitRefState>, state };
     b.resolve();
 
+    av::Ref c             { av::known_thread_safe_ref_type<MyObject, CommitRefState>, state };
+    b.resolve();
+
     av::Ref b_copy {b};
 
     av::Ref aa { a.decay() };

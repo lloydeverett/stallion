@@ -33,3 +33,6 @@ add_executable(stallion main.cpp tui.cpp server.cpp)
 target_link_libraries(stallion PRIVATE ftxui::screen ftxui::dom ftxui::component)
 target_link_libraries(stallion PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
 
+add_executable(stallion-tests asyncx/test-mutex.cpp)
+target_link_libraries(stallion-tests PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
+

@@ -1,499 +1,567 @@
 #pragma once
 
-#include <new> /* IWYU pragma: keep */
-#include <cstddef>
-#include <utility>
-#include <optional>
-#include <memory>
-#include <concepts>
-#include <type_traits>
-#include <typeinfo>
 #include <algorithm>
 #include <cassert>
+#include <concepts>
+#include <cstddef>
+#include <memory>
+#include <new> /* IWYU pragma: keep */
+#include <optional>
 #include <thread>
-
-#include "asyncx.hpp"
+#include <type_traits>
+#include <typeinfo>
+#include <utility>
 
 template <typename ObjectT>
-    requires std::has_virtual_destructor_v<ObjectT>
+  requires std::has_virtual_destructor_v<ObjectT>
 struct avarice {
 
-    //  TODO: Define principles:
-    //         - automatic / stack storage for refs, OR refs directly owned by objects that have automatic storage (e.g. a std::vector)
-    //         - always avoid taking references (&) to refs, though maybe we can allow const & references
-    //           since you can't do much with them anyway
-    //         - if you want to store a ref on the heap, you must use a specialised container that supplies ref copies
-    //           then the coroutine ref will stick around in the stack frame
+  //  TODO: OK actually - do channel-based mutex
+  //     // replace sync APIs with async APIs using asyncx
+  //     // See initializer.hpp
+  //          // make an async-mutex-single-threaded.hpp based on
+  //          async-mutex.hpp
+  //          // get the API to be similar
+  //          // but write the implementation new to remove threaded complexity
 
-    //  TODO: replace sync APIs with async APIs using asyncx
+  //  TODO: Define principles and generally have docs
+  //         - automatic / stack storage for refs, OR refs directly owned by
+  //         objects that have automatic storage (e.g. a std::vector)
+  //         - always avoid taking references (&) to refs, though maybe we can
+  //         allow const & references
+  //           since you can't do much with them anyway
+  //         - if you want to store a ref on the heap, you must use a
+  //         specialised container that supplies ref copies
+  //           then the coroutine ref will stick around in the stack frame
 
-    //  TODO: On ANY shared_ptr storage, use an async optional.
-    //     template <typename T>
-    //     class MutexOptional {
-    //         std::optional<T> opt;
-    //         Mutex mutex;
-    //     };
-    //     So the shared ptr should point to an optional lock as well as the optional
-    //     Ignore the possibility of moves during an emplace, it's too complicated, but also if you follow the principles above it's very difficult to mess up
+  //  TODO: On ANY shared_ptr storage, use an async optional or initialization
+  //  gate or whatever
+  //     template <typename T>
+  //     class MutexOptional {
+  //         std::optional<T> opt;
+  //         Mutex mutex;
+  //     };
+  //     So the shared ptr should point to an optional lock as well as the
+  //     optional Ignore the possibility of moves during an emplace, it's too
+  //     complicated, but also if you follow the principles above it's very
+  //     difficult to mess up
 
-    //  TODO: after doing the above: maybe even consider a thread-safe optional class, defined in asyncx and used here
-    //    similar to the above but the optional's "occupied" flag would be atomic
-    //    you would only use it in refs designed to cater for thread safe access
-    //    like ThreadSafeRef
+  //  TODO: after doing the above: maybe even consider a thread-safe optional
+  //  class, defined in asyncx and used here
+  //    similar to the above but the optional's "occupied" flag would be atomic
+  //    you would only use it in refs designed to cater for thread safe access
+  //    like ThreadSafeRef
 
-    //  TODO: new ref types:
-    //    - ThreadSafeRef (offers shared_ptr access to an object known to be thread-safe)
+  template <typename T> class Emplacer {
+    std::optional<T> *opt_ptr;
 
-    template <typename T>
-    class Emplacer
+  public:
+    Emplacer(std::optional<T> *opt_ptr) : opt_ptr(opt_ptr) { assert(opt_ptr); }
+    template <typename... Args> void operator()(Args &&...args) const {
+      opt_ptr->emplace(std::forward<Args>(args)...);
+    }
+  };
+
+  static constexpr int CONDITIONAL_BUFFER_MAX_STACK_SIZE = 48;
+
+  template <typename T, size_t MaxStackSize = CONDITIONAL_BUFFER_MAX_STACK_SIZE>
+  class ConditionalBuffer {
+  private:
+    static constexpr bool FitsOnStack = sizeof(T) <= MaxStackSize;
+
+    union StackBuffer {
+      std::byte dummy;
+      T value;
+
+      // Initialise with dummy state.
+      StackBuffer() : dummy{} {}
+
+      // We must provide a dummy destructor because T will be destroyed
+      // manually.
+      ~StackBuffer() {}
+    };
+
+    using BufferType =
+        std::conditional_t<FitsOnStack, StackBuffer, std::unique_ptr<T>>;
+
+    BufferType buffer;
+
+  public:
+    template <typename... Args> explicit ConditionalBuffer(Args &&...args) {
+      if constexpr (FitsOnStack) {
+        new (&buffer.value) T(std::forward<Args>(args)...);
+      } else {
+        buffer = std::make_unique<T>(std::forward<Args>(args)...);
+      }
+    }
+
+    T &get() noexcept {
+      if constexpr (FitsOnStack) {
+        return buffer.value;
+      } else {
+        return *buffer;
+      }
+    }
+
+    const T &get() const noexcept {
+      if constexpr (FitsOnStack) {
+        return buffer.value;
+      } else {
+        return *buffer;
+      }
+    }
+
+    ConditionalBuffer(const ConditionalBuffer &other)
+      requires std::copy_constructible<T>
     {
-        std::optional<T>* opt_ptr;
-    public:
-        Emplacer(std::optional<T>* opt_ptr) : opt_ptr(opt_ptr) {
-            assert(opt_ptr);
+      if constexpr (FitsOnStack) {
+        // Placement new using the other object's value
+        new (&buffer.value) T(other.get());
+      } else {
+        // Allocate a new heap object using the other object's value
+        buffer = std::make_unique<T>(other.get());
+      }
+    }
+
+    ConditionalBuffer(ConditionalBuffer &&other) noexcept(
+        std::is_nothrow_move_constructible_v<T>)
+      requires std::move_constructible<T>
+    {
+      if constexpr (FitsOnStack) {
+        // Placement new moving the other object's value
+        new (&buffer.value) T(std::move(other.get()));
+      } else {
+        // Steal the heap pointer
+        buffer = std::move(other.buffer);
+      }
+    }
+
+    ConditionalBuffer &operator=(const ConditionalBuffer &other)
+      requires std::copyable<T>
+    {
+      if (this != &other) {
+        if constexpr (FitsOnStack) {
+          // Delegate to T's copy assignment
+          get() = other.get();
+        } else {
+          // If this object was previously moved-from, the unique_ptr might be
+          // null
+          if (!buffer) {
+            buffer = std::make_unique<T>(other.get());
+          } else {
+            *buffer = other.get();
+          }
         }
-        template <typename... Args>
-        void operator()(Args&&... args) const {
-            opt_ptr->emplace(std::forward<Args>(args)...);
+      }
+      return *this;
+    }
+
+    ConditionalBuffer &operator=(ConditionalBuffer &&other) noexcept(
+        std::is_nothrow_move_assignable_v<T>)
+      requires std::is_move_assignable_v<T>
+    {
+      if (this != &other) {
+        if constexpr (FitsOnStack) {
+          // Delegate to T's move assignment
+          get() = std::move(other.get());
+        } else {
+          // Steal the other's heap pointer (automatically destroys current heap
+          // object if it exists)
+          buffer = std::move(other.buffer);
         }
-    };
+      }
+      return *this;
+    }
 
-    static constexpr int CONDITIONAL_BUFFER_MAX_STACK_SIZE = 48;
+    ~ConditionalBuffer() {
+      if constexpr (FitsOnStack) {
+        get().~T();
+      }
+      // If on the heap, unique_ptr cleans itself up automatically.
+    }
+  };
 
-    template <typename T, size_t MaxStackSize = CONDITIONAL_BUFFER_MAX_STACK_SIZE>
-    class ConditionalBuffer {
-    private:
-        static constexpr bool FitsOnStack = sizeof(T) <= MaxStackSize;
+  enum class PlacementNewAction { Copy, Move };
 
-        union StackBuffer {
-            std::byte dummy;
-            T value;
+  template <typename Base, size_t MaxSize,
+            size_t Alignment = alignof(std::max_align_t)>
+  class LocalPolymorphic {
+    static_assert(std::has_virtual_destructor_v<Base>,
+                  "Base class lacks a virtual destructor!");
 
-            // Initialise with dummy state.
-            StackBuffer() : dummy{} {}
+  protected:
+    alignas(Alignment) std::byte buffer[MaxSize];
+    Base *_ptr = nullptr;
 
-            // We must provide a dummy destructor because T will be destroyed manually.
-            ~StackBuffer() {}
-        };
+    using ManagerFn = void *(*)(PlacementNewAction action, void *dest,
+                                void *src);
+    ManagerFn _manager_fn = nullptr;
 
-        using BufferType = std::conditional_t<
-            FitsOnStack,
-            StackBuffer,
-            std::unique_ptr<T>
-        >;
+  public:
+    LocalPolymorphic() = default;
 
-        BufferType buffer;
+    template <typename Derived, typename... Args>
+    explicit LocalPolymorphic(std::in_place_type_t<Derived>, Args &&...args) {
+      emplace<Derived>(std::forward<Args>(args)...);
+    }
 
-    public:
-        template <typename... Args>
-        explicit ConditionalBuffer(Args&&... args) {
-            if constexpr (FitsOnStack) {
-                new (&buffer.value) T(std::forward<Args>(args)...);
-            } else {
-                buffer = std::make_unique<T>(std::forward<Args>(args)...);
-            }
+    template <typename Derived, typename... Args> void emplace(Args &&...args) {
+      static_assert(sizeof(Derived) <= MaxSize,
+                    "Object exceeds local stack buffer space.");
+      static_assert(std::is_base_of_v<Base, Derived>,
+                    "Type must extend the base class.");
+      static_assert(
+          Alignment >= alignof(Derived),
+          "Container alignment is too loose for the requested derived type.");
+      static_assert(
+          std::is_copy_constructible_v<Derived>,
+          "Derived type must be copyable to support copying LocalPolymorphic.");
+      static_assert(std::is_nothrow_move_constructible_v<Derived>,
+                    "Derived type must have a noexcept move constructor to be "
+                    "used in LocalPolymorphic.");
+
+      cleanup();
+
+      _ptr = ::new (static_cast<void *>(buffer))
+          Derived(std::forward<Args>(args)...);
+      _manager_fn = [](PlacementNewAction action, void *dest,
+                       void *src) -> void * {
+        Base *base_src = static_cast<Base *>(src);
+        if (action == PlacementNewAction::Copy) {
+          // NB: Source is logically const, be careful not to mutate it
+          // Safe to cast to const Derived& for copying
+          const Derived &typed_src = static_cast<const Derived &>(*base_src);
+          return static_cast<Base *>(::new (dest) Derived(typed_src));
+        } else {
+          // Safe to cast to mutable Derived& for moving
+          Derived &typed_src = static_cast<Derived &>(*base_src);
+          return static_cast<Base *>(::new (dest)
+                                         Derived(std::move(typed_src)));
         }
+      };
+    }
 
-        T& get() noexcept {
-            if constexpr (FitsOnStack) {
-                return buffer.value;
-            } else {
-                return *buffer;
-            }
+    /* Weak exception guarantee for copies */
+    LocalPolymorphic(const LocalPolymorphic &other) {
+      if (other._ptr) {
+        assert(other._manager_fn);
+        _ptr = static_cast<Base *>(
+            other._manager_fn(PlacementNewAction::Copy, buffer, other._ptr));
+        _manager_fn = other._manager_fn;
+      }
+    }
+
+    /* Weak exception guarantee for copies */
+    LocalPolymorphic &operator=(const LocalPolymorphic &other) {
+      if (this != &other) {
+        cleanup();
+        if (other._ptr) {
+          assert(other._manager_fn);
+          _ptr = static_cast<Base *>(
+              other._manager_fn(PlacementNewAction::Copy, buffer, other._ptr));
+          _manager_fn = other._manager_fn;
         }
+      }
+      return *this;
+    }
 
-        const T& get() const noexcept {
-            if constexpr (FitsOnStack) {
-                return buffer.value;
-            } else {
-                return *buffer;
-            }
+    /* Weak exception guarantee for moves */
+    LocalPolymorphic(LocalPolymorphic &&other) noexcept {
+      if (other._ptr) {
+        assert(other._manager_fn);
+        _ptr = static_cast<Base *>(
+            other._manager_fn(PlacementNewAction::Move, buffer, other._ptr));
+        _manager_fn = other._manager_fn;
+        other.cleanup();
+      }
+    }
+
+    /* Weak exception guarantee for moves */
+    LocalPolymorphic &operator=(LocalPolymorphic &&other) noexcept {
+      if (this != &other) {
+        cleanup();
+        if (other._ptr) {
+          assert(other._manager_fn);
+          _ptr = static_cast<Base *>(
+              other._manager_fn(PlacementNewAction::Move, buffer, other._ptr));
+          _manager_fn = other._manager_fn;
+          other.cleanup();
         }
+      }
+      return *this;
+    }
 
-        ConditionalBuffer(const ConditionalBuffer& other)
-            requires std::copy_constructible<T>
-        {
-            if constexpr (FitsOnStack) {
-                // Placement new using the other object's value
-                new (&buffer.value) T(other.get());
-            } else {
-                // Allocate a new heap object using the other object's value
-                buffer = std::make_unique<T>(other.get());
-            }
+    Base *ptr() noexcept { return _ptr; }
+    const Base *ptr() const noexcept { return _ptr; }
+
+    template <typename T> T *ptr_as() noexcept {
+      return dynamic_cast<T *>(_ptr);
+    }
+    template <typename T> const T *ptr_as() const noexcept {
+      return dynamic_cast<const T *>(_ptr);
+    }
+
+    ~LocalPolymorphic() { cleanup(); }
+
+  protected:
+    void cleanup() {
+      if (_ptr) {
+        _ptr->~Base();
+        _ptr = nullptr;
+        _manager_fn = nullptr;
+      }
+    }
+  };
+
+  class BaseRef {
+  public:
+    virtual ObjectT *resolve() = 0;
+    virtual ~BaseRef() = default;
+  };
+
+  //  NOTE: Must use single, non-virtual inheritance. See notes in Ref and RefTo
+  //  implementastions.
+  template <typename T>
+    requires std::derived_from<T, ObjectT>
+  class BaseRefTo : public BaseRef {
+  public:
+    virtual T *resolve() = 0;
+  };
+
+  template <typename T> class ThreadLocalStorage {
+  private:
+    std::shared_ptr<std::optional<T>> ptr;
+    std::thread::id owner_thread_id;
+
+    void assert_thread() {
+      assert(std::this_thread::get_id() == owner_thread_id &&
+             "Thread local storage accessed from a thread other than the owner "
+             "thread.");
+    }
+
+  public:
+    ThreadLocalStorage()
+        : ptr(std::make_shared<std::optional<T>>(std::nullopt)),
+          owner_thread_id(std::this_thread::get_id()) {}
+
+    ThreadLocalStorage(const T &obj)
+        : ptr(std::make_shared<std::optional<T>>(obj)),
+          owner_thread_id(std::this_thread::get_id()) {}
+
+    std::optional<T> &opt() {
+      assert_thread();
+      assert(ptr);
+      return *ptr;
+    }
+    const std::optional<T> &opt() const {
+      assert_thread();
+      assert(ptr);
+      return *ptr;
+    }
+  };
+
+  template <typename T> class KnownThreadSafeStorage {
+  private:
+    std::shared_ptr<std::optional<T>> ptr;
+
+  public:
+    KnownThreadSafeStorage()
+        : ptr(std::make_shared<std::optional<T>>(std::nullopt)) {}
+
+    KnownThreadSafeStorage(const T &obj)
+        : ptr(std::make_shared<std::optional<T>>(obj)) {}
+
+    std::optional<T> &opt() {
+      assert(ptr);
+      return *ptr;
+    }
+    const std::optional<T> &opt() const {
+      assert(ptr);
+      return *ptr;
+    }
+  };
+
+  template <typename T> class CopyingStorage {
+    std::unique_ptr<std::optional<T>> ptr;
+
+  public:
+    CopyingStorage() : ptr(std::make_unique<std::optional<T>>(std::nullopt)) {}
+
+    CopyingStorage(const T &obj)
+        : ptr(std::make_unique<std::optional<T>>(obj)) {}
+
+    CopyingStorage(const CopyingStorage &other)
+        : ptr(other.ptr ? std::make_unique<std::optional<T>>(*other.ptr)
+                        : nullptr) {}
+
+    CopyingStorage &operator=(const CopyingStorage &other) {
+      if (this != &other) {
+        if (other.ptr) {
+          ptr = std::make_unique<std::optional<T>>(*other.ptr);
+        } else {
+          ptr.reset();
         }
+      }
+      return *this;
+    }
 
-        ConditionalBuffer(ConditionalBuffer&& other) noexcept(std::is_nothrow_move_constructible_v<T>)
-            requires std::move_constructible<T>
-        {
-            if constexpr (FitsOnStack) {
-                // Placement new moving the other object's value
-                new (&buffer.value) T(std::move(other.get()));
-            } else {
-                // Steal the heap pointer
-                buffer = std::move(other.buffer);
-            }
-        }
+    CopyingStorage(CopyingStorage &&) noexcept = default;
+    CopyingStorage &operator=(CopyingStorage &&) noexcept = default;
+    ~CopyingStorage() = default;
 
-        ConditionalBuffer& operator=(const ConditionalBuffer& other)
-            requires std::copyable<T>
-        {
-            if (this != &other) {
-                if constexpr (FitsOnStack) {
-                    // Delegate to T's copy assignment
-                    get() = other.get();
-                } else {
-                    // If this object was previously moved-from, the unique_ptr might be null
-                    if (!buffer) {
-                        buffer = std::make_unique<T>(other.get());
-                    } else {
-                        *buffer = other.get();
-                    }
-                }
-            }
-            return *this;
-        }
+    std::optional<T> &opt() {
+      assert(ptr);
+      return *ptr;
+    }
+    const std::optional<T> &opt() const {
+      assert(ptr);
+      return *ptr;
+    }
+  };
 
-        ConditionalBuffer& operator=(ConditionalBuffer&& other) noexcept(std::is_nothrow_move_assignable_v<T>)
-            requires std::is_move_assignable_v<T>
-        {
-            if (this != &other) {
-                if constexpr (FitsOnStack) {
-                    // Delegate to T's move assignment
-                    get() = std::move(other.get());
-                } else {
-                    // Steal the other's heap pointer (automatically destroys current heap object if it exists)
-                    buffer = std::move(other.buffer);
-                }
-            }
-            return *this;
-        }
+  template <typename T, typename StateT, template <typename> class StorageT>
+    requires std::copyable<StorageT<T>>
+  class StorageRef : public BaseRefTo<T> {
+    ConditionalBuffer<StateT> state;
+    StorageT<T> storage;
 
-        ~ConditionalBuffer() {
-            if constexpr (FitsOnStack) {
-                get().~T();
-            }
-            // If on the heap, unique_ptr cleans itself up automatically.
-        }
-    };
+  public:
+    StorageRef(StateT state) : state(std::move(state)) {
+      // Assertion must be in constructor to avoid failing the assert when
+      // evaluating constexpr object sizes with dummy parameters
+      static_assert(std::copyable<StateT>, "State class must be copyable!");
+    }
+    T *resolve() override {
+      if (!storage.opt()) {
+        state.get().emplace(Emplacer(&storage.opt()));
+      }
+      return storage.opt() ? &(*storage.opt()) : nullptr;
+    }
+  };
 
-    enum class PlacementNewAction {
-        Copy,
-        Move
-    };
+  template <typename T, typename StateT>
+    requires std::copyable<ThreadLocalStorage<T>>
+  using ThreadLocalRef = StorageRef<T, StateT, ThreadLocalStorage>;
+  template <typename T, typename StateT>
+    requires std::copyable<KnownThreadSafeStorage<T>>
+  using KnownThreadSafeRef = StorageRef<T, StateT, KnownThreadSafeStorage>;
+  template <typename T, typename StateT>
+    requires std::copyable<CopyingStorage<T>>
+  using CopyingRef = StorageRef<T, StateT, CopyingStorage>;
 
-    template <typename Base, size_t MaxSize, size_t Alignment = alignof(std::max_align_t)>
-    class LocalPolymorphic {
-        static_assert(std::has_virtual_destructor_v<Base>, "Base class lacks a virtual destructor!");
+  template <typename T, typename StateT>
+  static constexpr auto shared_ref_type =
+      std::in_place_type<ThreadLocalRef<T, StateT>>;
+  template <typename T, typename StateT>
+  static constexpr auto known_thread_safe_ref_type =
+      std::in_place_type<KnownThreadSafeRef<T, StateT>>;
+  template <typename T, typename StateT>
+  static constexpr auto copying_ref_type =
+      std::in_place_type<CopyingRef<T, StateT>>;
 
-    protected:
-        alignas(Alignment) std::byte buffer[MaxSize];
-        Base* _ptr = nullptr;
+  static constexpr int POLYMORPHIC_REF_BUFFER_SIZE = std::max(
+      {sizeof(ThreadLocalRef<ObjectT, char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>),
+       sizeof(KnownThreadSafeRef<ObjectT,
+                                 char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>),
+       sizeof(CopyingRef<ObjectT, char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>)});
 
-        using ManagerFn = void* (*)(PlacementNewAction action, void* dest, void* src);
-        ManagerFn _manager_fn = nullptr;
+  class Ref;
 
-    public:
-        LocalPolymorphic() = default;
+  template <typename T>
+  class RefTo
+      : public LocalPolymorphic<BaseRefTo<T>, POLYMORPHIC_REF_BUFFER_SIZE> {
+  public:
+    using LocalPolymorphic<BaseRefTo<T>,
+                           POLYMORPHIC_REF_BUFFER_SIZE>::LocalPolymorphic;
+    using LocalPolymorphic<BaseRefTo<T>, POLYMORPHIC_REF_BUFFER_SIZE>::ptr;
 
-        template <typename Derived, typename... Args>
-        explicit LocalPolymorphic(std::in_place_type_t<Derived>, Args&&... args) {
-            emplace<Derived>(std::forward<Args>(args)...);
-        }
+    friend class Ref;
 
-        template <typename Derived, typename... Args>
-        void emplace(Args&&... args) {
-            static_assert(sizeof(Derived) <= MaxSize, "Object exceeds local stack buffer space.");
-            static_assert(std::is_base_of_v<Base, Derived>, "Type must extend the base class.");
-            static_assert(Alignment >= alignof(Derived),
-                  "Container alignment is too loose for the requested derived type.");
-            static_assert(std::is_copy_constructible_v<Derived>,
-                  "Derived type must be copyable to support copying LocalPolymorphic.");
-            static_assert(std::is_nothrow_move_constructible_v<Derived>,
-                "Derived type must have a noexcept move constructor to be used in LocalPolymorphic.");
+    T *resolve() {
+      assert(ptr());
+      return ptr()->resolve();
+    }
 
-            cleanup();
+    Ref decay() const & {
+      Ref r;
+      if (this->_ptr) {
+        assert(this->_manager_fn);
+        r._ptr = static_cast<BaseRef *>(
+            this->_manager_fn(PlacementNewAction::Copy, r.buffer,
+                              static_cast<BaseRef *>(this->_ptr)));
+        //  NOTE: Reusing _manager_fn implies a need for single inheritance
+        //  (base must be at offset 0)
+        r._manager_fn = this->_manager_fn;
+      }
+      return r;
+    }
 
-            _ptr = ::new (static_cast<void*>(buffer)) Derived(std::forward<Args>(args)...);
-            _manager_fn = [](PlacementNewAction action, void* dest, void* src) -> void* {
-                Base* base_src = static_cast<Base*>(src);
-                if (action == PlacementNewAction::Copy) {
-                    // NB: Source is logically const, be careful not to mutate it
-                    // Safe to cast to const Derived& for copying
-                    const Derived& typed_src = static_cast<const Derived&>(*base_src);
-                    return static_cast<Base*>(::new (dest) Derived(typed_src));
-                } else {
-                    // Safe to cast to mutable Derived& for moving
-                    Derived& typed_src = static_cast<Derived&>(*base_src);
-                    return static_cast<Base*>(::new (dest) Derived(std::move(typed_src)));
-                }
-            };
-        }
+    Ref decay() && {
+      Ref r;
+      if (this->_ptr) {
+        assert(this->_manager_fn);
+        r._ptr = static_cast<BaseRef *>(
+            this->_manager_fn(PlacementNewAction::Move, r.buffer,
+                              static_cast<BaseRef *>(this->_ptr)));
+        //  NOTE: Reusing _manager_fn implies a need for single inheritance
+        //  (base must be at offset 0)
+        r._manager_fn = this->_manager_fn;
+        this->cleanup();
+      }
+      return r;
+    }
+  };
 
-        /* Weak exception guarantee for copies */
-        LocalPolymorphic(const LocalPolymorphic& other) {
-            if (other._ptr) {
-                assert(other._manager_fn);
-                _ptr = static_cast<Base*>(other._manager_fn(PlacementNewAction::Copy, buffer, other._ptr));
-                _manager_fn = other._manager_fn;
-            }
-        }
+  class Ref : public LocalPolymorphic<BaseRef, POLYMORPHIC_REF_BUFFER_SIZE> {
+  public:
+    using LocalPolymorphic<BaseRef,
+                           POLYMORPHIC_REF_BUFFER_SIZE>::LocalPolymorphic;
+    using LocalPolymorphic<BaseRef, POLYMORPHIC_REF_BUFFER_SIZE>::ptr;
 
-        /* Weak exception guarantee for copies */
-        LocalPolymorphic& operator=(const LocalPolymorphic& other) {
-            if (this != &other) {
-                cleanup();
-                if (other._ptr) {
-                    assert(other._manager_fn);
-                    _ptr = static_cast<Base*>(other._manager_fn(PlacementNewAction::Copy, buffer, other._ptr));
-                    _manager_fn = other._manager_fn;
-                }
-            }
-            return *this;
-        }
+    template <typename T> friend class RefTo;
 
-        /* Weak exception guarantee for moves */
-        LocalPolymorphic(LocalPolymorphic&& other) noexcept {
-            if (other._ptr) {
-                assert(other._manager_fn);
-                _ptr = static_cast<Base*>(other._manager_fn(PlacementNewAction::Move, buffer, other._ptr));
-                _manager_fn = other._manager_fn;
-                other.cleanup();
-            }
-        }
+    ObjectT *resolve() {
+      assert(ptr());
+      return ptr()->resolve();
+    }
 
-        /* Weak exception guarantee for moves */
-        LocalPolymorphic& operator=(LocalPolymorphic&& other) noexcept {
-            if (this != &other) {
-                cleanup();
-                if (other._ptr) {
-                    assert(other._manager_fn);
-                    _ptr = static_cast<Base*>(other._manager_fn(PlacementNewAction::Move, buffer, other._ptr));
-                    _manager_fn = other._manager_fn;
-                    other.cleanup();
-                }
-            }
-            return *this;
-        }
+    template <typename T> RefTo<T> undecay() const & {
+      RefTo<T> r;
+      if (this->_ptr) {
+        assert(this->_manager_fn);
 
-        Base* ptr() noexcept { return _ptr; }
-        const Base* ptr() const noexcept { return _ptr; }
-
-        template <typename T>
-        T* ptr_as() noexcept {
-            return dynamic_cast<T*>(_ptr);
-        }
-        template <typename T>
-        const T* ptr_as() const noexcept {
-            return dynamic_cast<const T*>(_ptr);
-        }
-
-        ~LocalPolymorphic() { cleanup(); }
-
-    protected:
-        void cleanup() {
-            if (_ptr) {
-                _ptr->~Base();
-                _ptr = nullptr;
-                _manager_fn = nullptr;
-            }
-        }
-    };
-
-    class BaseRef {
-    public:
-        virtual ObjectT* resolve() = 0;
-        virtual ~BaseRef() = default;
-    };
-
-    //  NOTE: Must use single, non-virtual inheritance. See notes in Ref and RefTo implementastions.
-    template <typename T>
-        requires std::derived_from<T, ObjectT>
-    class BaseRefTo : public BaseRef {
-    public:
-        virtual T* resolve() = 0;
-    };
-
-    template <typename T>
-    class ThreadLocalStorage {
-    private:
-        std::shared_ptr<std::optional<T>> ptr;
-        std::thread::id owner_thread_id;
-
-        void assert_thread() {
-            assert(std::this_thread::get_id() == owner_thread_id &&
-               "Thread local storage accessed from a thread other than the owner thread.");
-        }
-
-    public:
-        ThreadLocalStorage()
-            : ptr(std::make_shared<std::optional<T>>(std::nullopt)),
-              owner_thread_id(std::this_thread::get_id()) { }
-
-        ThreadLocalStorage(const T& obj)
-            : ptr(std::make_shared<std::optional<T>>(obj)),
-              owner_thread_id(std::this_thread::get_id()) { }
-
-        std::optional<T>& opt() { assert_thread(); assert(ptr); return *ptr; }
-        const std::optional<T>& opt() const { assert_thread(); assert(ptr); return *ptr; }
-    };
-
-    template <typename T>
-    class CopyingStorage {
-        std::unique_ptr<std::optional<T>> ptr;
-
-    public:
-        CopyingStorage() : ptr(std::make_unique<std::optional<T>>(std::nullopt)) { }
-
-        CopyingStorage(const T& obj) : ptr(std::make_unique<std::optional<T>>(obj)) { }
-
-        CopyingStorage(const CopyingStorage& other)
-            : ptr(other.ptr ? std::make_unique<std::optional<T>>(*other.ptr) : nullptr) { }
-
-        CopyingStorage& operator=(const CopyingStorage& other) {
-            if (this != &other) {
-                if (other.ptr) {
-                    ptr = std::make_unique<std::optional<T>>(*other.ptr);
-                } else {
-                    ptr.reset();
-                }
-            }
-            return *this;
-        }
-
-        CopyingStorage(CopyingStorage&&) noexcept = default;
-        CopyingStorage& operator=(CopyingStorage&&) noexcept = default;
-        ~CopyingStorage() = default;
-
-        std::optional<T>& opt() { assert(ptr); return *ptr; }
-        const std::optional<T>& opt() const { assert(ptr); return *ptr; }
-    };
-
-    template <typename T, typename StateT, template <typename> class StorageT>
-        requires std::copyable<StorageT<T>>
-    class StorageRef : public BaseRefTo<T> {
-        ConditionalBuffer<StateT> state;
-        StorageT<T> storage;
-
-    public:
-        StorageRef(StateT state)
-            : state(std::move(state)) {
-            // Assertion must be in constructor to avoid failing the assert when evaluating constexpr object sizes with dummy parameters
-            static_assert(std::copyable<StateT>, "State class must be copyable!");
-        }
-        T* resolve() override {
-            if (!storage.opt()) {
-                state.get().emplace(Emplacer(&storage.opt()));
-            }
-            return storage.opt() ? &(*storage.opt()) : nullptr;
-        }
-    };
-
-    template <typename T, typename StateT>
-        requires std::copyable<ThreadLocalStorage<T>>
-    using ThreadLocalRef = StorageRef<T, StateT, ThreadLocalStorage>;
-    template <typename T, typename StateT>
-        requires std::copyable<CopyingStorage<T>>
-    using CopyingRef = StorageRef<T, StateT, CopyingStorage>;
-
-    template <typename T, typename StateT>
-    static constexpr auto shared_ref_type = std::in_place_type<ThreadLocalRef<T, StateT>>;
-    template <typename T, typename StateT>
-    static constexpr auto copying_ref_type = std::in_place_type<CopyingRef<T, StateT>>;
-
-    static constexpr int POLYMORPHIC_REF_BUFFER_SIZE = std::max({
-        sizeof(ThreadLocalRef<ObjectT, char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>),
-        sizeof(CopyingRef<ObjectT, char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>)
-    });
-
-    class Ref;
-
-    template <typename T>
-    class RefTo : public LocalPolymorphic<BaseRefTo<T>, POLYMORPHIC_REF_BUFFER_SIZE> {
-    public:
-        using LocalPolymorphic<BaseRefTo<T>, POLYMORPHIC_REF_BUFFER_SIZE>::LocalPolymorphic;
-        using LocalPolymorphic<BaseRefTo<T>, POLYMORPHIC_REF_BUFFER_SIZE>::ptr;
-
-        friend class Ref;
-
-        T* resolve() {
-            assert(ptr());
-            return ptr()->resolve();
-        }
-
-        Ref decay() const & {
-            Ref r;
-            if (this->_ptr) {
-                assert(this->_manager_fn);
-                r._ptr = static_cast<BaseRef*>(this->_manager_fn(PlacementNewAction::Copy, r.buffer, static_cast<BaseRef*>(this->_ptr)));
-                //  NOTE: Reusing _manager_fn implies a need for single inheritance (base must be at offset 0)
-                r._manager_fn = this->_manager_fn;
-            }
-            return r;
-        }
-
-        Ref decay() && {
-            Ref r;
-            if (this->_ptr) {
-                assert(this->_manager_fn);
-                r._ptr = static_cast<BaseRef*>(this->_manager_fn(PlacementNewAction::Move, r.buffer, static_cast<BaseRef*>(this->_ptr)));
-                //  NOTE: Reusing _manager_fn implies a need for single inheritance (base must be at offset 0)
-                r._manager_fn = this->_manager_fn;
-                this->cleanup();
-            }
-            return r;
-        }
-    };
-
-    class Ref : public LocalPolymorphic<BaseRef, POLYMORPHIC_REF_BUFFER_SIZE> {
-    public:
-        using LocalPolymorphic<BaseRef, POLYMORPHIC_REF_BUFFER_SIZE>::LocalPolymorphic;
-        using LocalPolymorphic<BaseRef, POLYMORPHIC_REF_BUFFER_SIZE>::ptr;
-
-        template <typename T>
-        friend class RefTo;
-
-        ObjectT* resolve() {
-            assert(ptr());
-            return ptr()->resolve();
-        }
-
-        template <typename T>
-        RefTo<T> undecay() const & {
-            RefTo<T> r;
-            if (this->_ptr) {
-                assert(this->_manager_fn);
-
-                BaseRefTo<T>* target = dynamic_cast<BaseRefTo<T>*>(this->_ptr);
-                if (!target) {
-                    throw std::bad_cast();
-                }
-
-                r._ptr = static_cast<BaseRefTo<T>*>(this->_manager_fn(PlacementNewAction::Copy, r.buffer, this->_ptr));
-                //  NOTE: Reusing _manager_fn implies a need for single inheritance (base must be at offset 0)
-                r._manager_fn = this->_manager_fn;
-            }
-            return r;
+        BaseRefTo<T> *target = dynamic_cast<BaseRefTo<T> *>(this->_ptr);
+        if (!target) {
+          throw std::bad_cast();
         }
 
-        template <typename T>
-        RefTo<T> undecay() && {
-            RefTo<T> r;
-            if (this->_ptr) {
-                assert(this->_manager_fn);
+        r._ptr = static_cast<BaseRefTo<T> *>(
+            this->_manager_fn(PlacementNewAction::Copy, r.buffer, this->_ptr));
+        //  NOTE: Reusing _manager_fn implies a need for single inheritance
+        //  (base must be at offset 0)
+        r._manager_fn = this->_manager_fn;
+      }
+      return r;
+    }
 
-                BaseRefTo<T>* target = dynamic_cast<BaseRefTo<T>*>(this->_ptr);
-                if (!target) {
-                    throw std::bad_cast();
-                }
+    template <typename T> RefTo<T> undecay() && {
+      RefTo<T> r;
+      if (this->_ptr) {
+        assert(this->_manager_fn);
 
-                r._ptr = static_cast<BaseRefTo<T>*>(this->_manager_fn(PlacementNewAction::Move, r.buffer, this->_ptr));
-                //  NOTE: Reusing _manager_fn implies a need for single inheritance (base must be at offset 0)
-                r._manager_fn = this->_manager_fn;
-                this->cleanup();
-            }
-            return r;
+        BaseRefTo<T> *target = dynamic_cast<BaseRefTo<T> *>(this->_ptr);
+        if (!target) {
+          throw std::bad_cast();
         }
-    };
 
+        r._ptr = static_cast<BaseRefTo<T> *>(
+            this->_manager_fn(PlacementNewAction::Move, r.buffer, this->_ptr));
+        //  NOTE: Reusing _manager_fn implies a need for single inheritance
+        //  (base must be at offset 0)
+        r._manager_fn = this->_manager_fn;
+        this->cleanup();
+      }
+      return r;
+    }
+  };
 };
-
