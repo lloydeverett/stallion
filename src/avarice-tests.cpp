@@ -10,7 +10,12 @@ public:
   virtual ~MyObjectT() = default;
 };
 
-using av = avarice<MyObjectT>;
+class BaseStateT {
+public:
+  virtual ~BaseStateT() = default;
+};
+
+using av = avarice<MyObjectT, BaseStateT>;
 
 class MyObject : public MyObjectT {
   std::string str;
@@ -20,7 +25,7 @@ public:
 };
 
 int main() {
-  struct CommitRefState {
+  struct CommitRefState : public BaseStateT {
     std::string x;
     void emplace(av::Emplacer<MyObject> emplacer) const {
       emplacer("foo");

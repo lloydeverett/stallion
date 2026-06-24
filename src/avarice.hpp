@@ -12,7 +12,7 @@
 #include <typeinfo>
 #include <utility>
 
-template <typename ObjectT>
+template <typename ObjectT, typename BaseStateT>
   requires std::has_virtual_destructor_v<ObjectT>
 struct avarice {
 
@@ -62,15 +62,15 @@ struct avarice {
     }
   };
 
-  static constexpr int CONDITIONAL_BUFFER_MAX_STACK_SIZE = 48;
-
-  template <typename T, size_t MaxStackSize = CONDITIONAL_BUFFER_MAX_STACK_SIZE>
+  template <typename T, size_t MaxStackSize, bool IsSizeMeasurement>
   class ConditionalBuffer {
   private:
-    static constexpr bool FitsOnStack = sizeof(T) <= MaxStackSize;
+    static_assert(!IsSizeMeasurement || sizeof(T) <= MaxStackSize);
+    static constexpr bool FitsOnStack =
+        IsSizeMeasurement || sizeof(T) <= MaxStackSize;
 
     union StackBuffer {
-      std::byte dummy;
+      std::byte dummy[IsSizeMeasurement ? MaxStackSize : 1];
       T value;
 
       // Initialise with dummy state.
@@ -316,6 +316,7 @@ struct avarice {
   class BaseRef {
   public:
     virtual ObjectT *resolve() = 0;
+    virtual const BaseStateT &state() const = 0;
     virtual ~BaseRef() = default;
   };
 
@@ -419,35 +420,49 @@ struct avarice {
     }
   };
 
-  template <typename T, typename StateT, template <typename> class StorageT>
+  static constexpr int CONDITIONAL_BUFFER_MAX_STACK_SIZE = 48;
+  static_assert(sizeof(BaseStateT) <= CONDITIONAL_BUFFER_MAX_STACK_SIZE);
+
+  template <typename T, typename StateT, template <typename> class StorageT,
+            bool IsSizeMeasurement = false>
     requires std::copyable<StorageT<T>>
   class StorageRef : public BaseRefTo<T> {
-    ConditionalBuffer<StateT> state;
-    StorageT<T> storage;
+    ConditionalBuffer<StateT, CONDITIONAL_BUFFER_MAX_STACK_SIZE,
+                      IsSizeMeasurement>
+        _state;
+    StorageT<T> _storage;
 
   public:
-    StorageRef(StateT state) : state(std::move(state)) {
+    StorageRef(StateT state) : _state(std::move(state)) {
       // Assertion must be in constructor to avoid failing the assert when
       // evaluating constexpr object sizes with dummy parameters
       static_assert(std::copyable<StateT>, "State class must be copyable!");
+      static_assert(
+          std::is_base_of_v<BaseStateT, StateT>,
+          "State class must inherit from base state template parameter type!");
     }
+
     T *resolve() override {
-      if (!storage.opt()) {
-        state.get().emplace(Emplacer(&storage.opt()));
+      if (!_storage.opt()) {
+        _state.get().emplace(Emplacer(&_storage.opt()));
       }
-      return storage.opt() ? &(*storage.opt()) : nullptr;
+      return _storage.opt() ? &(*_storage.opt()) : nullptr;
     }
+
+    const StateT &state() const override { return _state.get(); }
   };
 
-  template <typename T, typename StateT>
+  template <typename T, typename StateT, bool IsSizeMeasurement = false>
     requires std::copyable<ThreadLocalStorage<T>>
-  using ThreadLocalRef = StorageRef<T, StateT, ThreadLocalStorage>;
-  template <typename T, typename StateT>
+  using ThreadLocalRef =
+      StorageRef<T, StateT, ThreadLocalStorage, IsSizeMeasurement>;
+  template <typename T, typename StateT, bool IsSizeMeasurement = false>
     requires std::copyable<KnownThreadSafeStorage<T>>
-  using KnownThreadSafeRef = StorageRef<T, StateT, KnownThreadSafeStorage>;
-  template <typename T, typename StateT>
+  using KnownThreadSafeRef =
+      StorageRef<T, StateT, KnownThreadSafeStorage, IsSizeMeasurement>;
+  template <typename T, typename StateT, bool IsSizeMeasurement = false>
     requires std::copyable<CopyingStorage<T>>
-  using CopyingRef = StorageRef<T, StateT, CopyingStorage>;
+  using CopyingRef = StorageRef<T, StateT, CopyingStorage, IsSizeMeasurement>;
 
   template <typename T, typename StateT>
   static constexpr auto shared_ref_type =
@@ -459,11 +474,10 @@ struct avarice {
   static constexpr auto copying_ref_type =
       std::in_place_type<CopyingRef<T, StateT>>;
 
-  static constexpr int POLYMORPHIC_REF_BUFFER_SIZE = std::max(
-      {sizeof(ThreadLocalRef<ObjectT, char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>),
-       sizeof(KnownThreadSafeRef<ObjectT,
-                                 char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>),
-       sizeof(CopyingRef<ObjectT, char[CONDITIONAL_BUFFER_MAX_STACK_SIZE]>)});
+  static constexpr int POLYMORPHIC_REF_BUFFER_SIZE =
+      std::max({sizeof(ThreadLocalRef<ObjectT, BaseStateT, true>),
+                sizeof(KnownThreadSafeRef<ObjectT, BaseStateT, true>),
+                sizeof(CopyingRef<ObjectT, BaseStateT, true>)});
 
   class Ref;
 
@@ -480,6 +494,11 @@ struct avarice {
     T *resolve() {
       assert(ptr());
       return ptr()->resolve();
+    }
+
+    const BaseStateT &state() const {
+      assert(ptr());
+      return ptr()->state();
     }
 
     Ref decay() const & {
@@ -523,6 +542,11 @@ struct avarice {
     ObjectT *resolve() {
       assert(ptr());
       return ptr()->resolve();
+    }
+
+    const BaseStateT &state() const {
+      assert(ptr());
+      return ptr()->state();
     }
 
     template <typename T> RefTo<T> undecay() const & {
