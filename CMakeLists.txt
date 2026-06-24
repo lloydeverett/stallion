@@ -29,10 +29,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ftxui)
 
-add_executable(stallion main.cpp tui.cpp server.cpp)
+# main target
+add_executable(stallion src/main.cpp src/expose-tui.cpp src/expose-http.cpp)
 target_link_libraries(stallion PRIVATE ftxui::screen ftxui::dom ftxui::component)
 target_link_libraries(stallion PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
 
-add_executable(stallion-tests asyncx/test-mutex.cpp)
+# test target
+add_executable(stallion-tests src/asyncex-tests.cpp)
 target_link_libraries(stallion-tests PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
+
+# TODO: Rename from stallion to something else
+# TODO: Run tests automatically as part of build
+#       (maybe add a define here)
+# TODO: Work out multiple translation units for tests
 

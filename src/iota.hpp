@@ -5,6 +5,10 @@
 #include <boost/cobalt.hpp>
 #include <boost/json.hpp>
 
+// TODO: Reconcile with avarice
+// TODO: You might need avarice to allow specifying a base class for all Ref
+//       states - then put stuff you need in the ref state
+
 enum class IotaKind {
   UNSPECIFIED,
   REPRESENTATIONAL,
@@ -15,6 +19,7 @@ class MaybeIotaBase {
 public:
   virtual IotaKind kind() { return IotaKind::UNSPECIFIED; };
   virtual std::string id() = 0;
+  virtual std::string mime_type() = 0;
   virtual ~MaybeIotaBase() = default;
 };
 

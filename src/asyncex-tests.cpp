@@ -115,6 +115,7 @@ int main() {
     test_async_mutex<false>();
     test_initialization_gate_success<false>();
     test_initialization_gate_failure_and_retry<false>();
+    std::cout << std::endl;
     std::cout << "[Concurrent mutex and gate implementation]" << std::endl;
     test_async_mutex<true>();
     test_initialization_gate_success<true>();

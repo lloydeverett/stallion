@@ -230,8 +230,8 @@ asio::awaitable<void> do_listen(asio::ip::tcp::endpoint endpoint,
   }
 }
 
-int server_main(const char *address_str, unsigned short port,
-                const char *doc_root_str, int threads) {
+int expose_http_main(const char *address_str, unsigned short port,
+                     const char *doc_root_str, int threads) {
   auto const address = asio::ip::make_address(address_str);
   auto const doc_root = std::make_shared<std::string>(doc_root_str);
 
