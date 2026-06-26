@@ -37,9 +37,14 @@ target_link_libraries(stallion PRIVATE Boost::process Boost::filesystem Boost::a
 # test target
 add_executable(stallion-tests src/asyncex-tests.cpp)
 target_link_libraries(stallion-tests PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
+add_custom_command(
+  TARGET stallion-tests 
+  POST_BUILD
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/stallion-tests"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  COMMENT "Running tests..."
+)
 
 # TODO: Rename from stallion to something else
-# TODO: Run tests automatically as part of build
-#       (maybe add a define here)
 # TODO: Work out multiple translation units for tests
 
