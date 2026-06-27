@@ -8,6 +8,8 @@
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
+namespace asyncex {
+
 // An async mutex built on top of an Asio channel.
 //
 // Callers `co_await lock()` to acquire, receiving an RAII `Lock` that releases
@@ -180,3 +182,5 @@ template class AsyncMutex<false>;
 
 template class InitializationGate<true>;
 template class InitializationGate<false>;
+
+} // namespace asyncex

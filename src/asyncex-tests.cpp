@@ -3,6 +3,8 @@
 #include "asyncex.hpp"
 #include "tests.hpp"
 
+using namespace asyncex;
+
 template <bool IsConcurrent> void test_async_mutex() {
   std::cout << "[TEST] Running AsyncMutex mutual exclusion test..."
             << std::endl;
