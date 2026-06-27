@@ -8,7 +8,7 @@
 
 #include "view-dummy.hpp"
 
-int tui_main() {
+int expose_tui_main() {
   auto screen = ftxui::App::Fullscreen();
 
   boost::asio::io_context io_ctx;
