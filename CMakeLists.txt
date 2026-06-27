@@ -50,5 +50,17 @@ add_custom_command(
   COMMENT "Running tests..."
 )
 
+# generate compile_flags.txt
+if(NOT MSVC)
+    add_custom_target(generate-compile-flags ALL
+      COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/compile_flags.sh"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      COMMENT "Generate compile_flags.txt..."
+      VERBATIM
+    )
+    add_dependencies(generate-compile-flags stallion)
+    add_dependencies(generate-compile-flags stallion-tests)
+endif()
+
 # TODO: Rename from stallion to something else
 
