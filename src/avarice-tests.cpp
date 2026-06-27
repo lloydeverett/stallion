@@ -29,13 +29,17 @@ int main() {
     std::string x;
     void emplace(av::Emplacer<MyObject> emplacer) const {
       emplacer("foo");
-      //  TODO: Implement
+      // TODO: Implement
     }
     void traverse() const & {
-      //  TODO: Implement
+      // TODO: Should really just be the router that calls this, so it can
+      //       filter paths before access
+      // TODO: Implement
     }
     void traverse() && {
-      //  TODO: Implement
+      // TODO: Should really just be the router that calls this, so it can
+      //       filter paths before access
+      // TODO: Implement
     }
   } state;
 

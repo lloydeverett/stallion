@@ -7,7 +7,7 @@
 #include <memory>
 #include <new> /* IWYU pragma: keep */
 #include <optional>
-#include <thread>
+/* #include <thread> */
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
@@ -329,6 +329,7 @@ struct avarice {
     virtual T *resolve() = 0;
   };
 
+  /*
   template <typename T> class ThreadLocalStorage {
   private:
     std::shared_ptr<std::optional<T>> ptr;
@@ -360,6 +361,7 @@ struct avarice {
       return *ptr;
     }
   };
+  */
 
   template <typename T> class KnownThreadSafeStorage {
   private:
@@ -452,10 +454,12 @@ struct avarice {
     const StateT &state() const override { return _state.get(); }
   };
 
+  /*
   template <typename T, typename StateT, bool IsSizeMeasurement = false>
     requires std::copyable<ThreadLocalStorage<T>>
   using ThreadLocalRef =
       StorageRef<T, StateT, ThreadLocalStorage, IsSizeMeasurement>;
+  */
   template <typename T, typename StateT, bool IsSizeMeasurement = false>
     requires std::copyable<KnownThreadSafeStorage<T>>
   using KnownThreadSafeRef =
@@ -464,9 +468,11 @@ struct avarice {
     requires std::copyable<CopyingStorage<T>>
   using CopyingRef = StorageRef<T, StateT, CopyingStorage, IsSizeMeasurement>;
 
+  /*
   template <typename T, typename StateT>
   static constexpr auto shared_ref_type =
       std::in_place_type<ThreadLocalRef<T, StateT>>;
+  */
   template <typename T, typename StateT>
   static constexpr auto known_thread_safe_ref_type =
       std::in_place_type<KnownThreadSafeRef<T, StateT>>;
@@ -475,7 +481,7 @@ struct avarice {
       std::in_place_type<CopyingRef<T, StateT>>;
 
   static constexpr int POLYMORPHIC_REF_BUFFER_SIZE =
-      std::max({sizeof(ThreadLocalRef<ObjectT, BaseStateT, true>),
+      std::max({/* sizeof(ThreadLocalRef<ObjectT, BaseStateT, true>), */
                 sizeof(KnownThreadSafeRef<ObjectT, BaseStateT, true>),
                 sizeof(CopyingRef<ObjectT, BaseStateT, true>)});
 
