@@ -36,6 +36,11 @@ target_link_libraries(stallion PRIVATE Boost::process Boost::filesystem Boost::a
 
 # test target
 add_executable(stallion-tests src/asyncex-tests.cpp src/tests.cpp)
+if(MSVC)
+    target_compile_options(stallion-tests PRIVATE /UNDEBUG)
+else()
+    target_compile_options(stallion-tests PRIVATE -UNDEBUG)
+endif()
 target_link_libraries(stallion-tests PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
 add_custom_command(
   TARGET stallion-tests 

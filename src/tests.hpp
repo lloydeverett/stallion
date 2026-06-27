@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef NDEBUG
-#error "Tests should not be compiled with NDEBUG defined"
+#error "Tests should not be compiled with NDEBUG defined."
 #endif
 
 #include <cassert>
