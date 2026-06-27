@@ -115,6 +115,7 @@ template <bool IsConcurrent> void test_initialization_gate_failure_and_retry() {
 struct asyncex_tests {
   asyncex_tests() { g_tests.push_back(asyncex_tests::test); }
   static void test() {
+    std::cout << "TEST SUITE: asyncex.hpp\n";
     std::cout << "[Non-concurrent mutex and gate implementation]\n";
     test_async_mutex<false>();
     test_initialization_gate_success<false>();

@@ -36,7 +36,7 @@ target_link_libraries(stallion PRIVATE ftxui::screen ftxui::dom ftxui::component
 target_link_libraries(stallion PRIVATE Boost::process Boost::filesystem Boost::asio Boost::system Boost::headers Boost::beast Boost::json Boost::cobalt)
 
 # test target
-add_executable(stallion-tests src/asyncex-tests.cpp src/tests.cpp)
+add_executable(stallion-tests src/asyncex-tests.cpp src/avarice-tests.cpp src/tests.cpp)
 if(MSVC)
     target_compile_options(stallion-tests PRIVATE /UNDEBUG)
 else()
