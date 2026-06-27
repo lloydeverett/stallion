@@ -135,8 +135,13 @@ private:
   std::exception_ptr last_exception{nullptr};
 
 public:
-  explicit InitializationGate(boost::asio::any_io_executor executor)
-      : mutex(executor) {}
+  explicit InitializationGate(boost::asio::any_io_executor executor,
+                              bool already_initialized = false)
+      : mutex(executor) {
+    if (already_initialized) {
+      initialized.store(true, std::memory_order_release);
+    }
+  }
 
   template <typename InitAwaitable>
   boost::asio::awaitable<std::optional<std::exception_ptr>>
@@ -177,10 +182,24 @@ public:
   }
 };
 
+// template instantiation to ensure compilation is successful
 template class AsyncMutex<true>;
 template class AsyncMutex<false>;
-
 template class InitializationGate<true>;
 template class InitializationGate<false>;
+
+template <typename T, bool IsConcurrent> class Lazy {
+  std::optional<T> obj_;
+  InitializationGate<IsConcurrent> gate_;
+
+public:
+  explicit Lazy(boost::asio::any_io_executor exec,
+                std::optional<T> initial_value = std::nullopt)
+      : obj_(std::move(initial_value)), gate_(exec, obj_.has_value()) {}
+
+  std::optional<T> &opt() { return obj_; }
+  const std::optional<T> &opt() const { return obj_; }
+  InitializationGate<IsConcurrent> &gate() { return gate_; }
+};
 
 } // namespace asyncex

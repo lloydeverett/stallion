@@ -1,7 +1,11 @@
 #include <iostream>
 #include <string>
 
+#include <boost/asio.hpp>
+
+#include "async.hpp"
 #include "avarice.hpp"
+#include "tests.hpp"
 
 // TODO: Write actual tests
 
@@ -15,7 +19,7 @@ public:
   virtual ~BaseStateT() = default;
 };
 
-using av = avarice<MyObjectT, BaseStateT>;
+using av = avarice<MyObjectT, BaseStateT, async::Concurrency::Single>;
 
 class MyObject : public MyObjectT {
   std::string str;
@@ -24,7 +28,7 @@ public:
   MyObject(std::string str) : str(std::move(str)) {}
 };
 
-void avarice_tests() {
+async::Awaitable<void> avarice_tests_coro(async::Executor exec) {
   struct CommitRefState : public BaseStateT {
     std::string x;
     void emplace(av::Emplacer<MyObject> emplacer) const {
@@ -44,30 +48,42 @@ void avarice_tests() {
   } state;
 
   av::RefTo<MyObject> a{
-      av::known_thread_safe_ref_type<MyObject, CommitRefState>, state};
-  a.resolve();
+      av::known_thread_safe_ref_type<MyObject, CommitRefState>, state, exec};
+  co_await a.resolve();
 
   std::cout << sizeof(av::RefTo<MyObject>) << std::endl;
   std::cout << alignof(std::max_align_t) << std::endl;
 
   av::RefTo<MyObject> a_copy = a;
 
-  av::Ref b{av::copying_ref_type<MyObject, CommitRefState>, state};
-  b.resolve();
+  av::Ref b{av::copying_ref_type<MyObject, CommitRefState>, state, exec};
+  co_await b.resolve();
 
-  av::Ref c{av::known_thread_safe_ref_type<MyObject, CommitRefState>, state};
-  b.resolve();
+  av::Ref c{av::known_thread_safe_ref_type<MyObject, CommitRefState>, state,
+            exec};
+  co_await b.resolve();
 
   av::Ref b_copy{b};
 
   av::Ref aa{a.decay()};
-  aa.resolve();
+  co_await aa.resolve();
 
   av::RefTo<MyObject> aaa{aa.undecay<MyObject>()};
-  aaa.resolve();
+  co_await aaa.resolve();
 
-  a.resolve();
-  aa.resolve();
+  co_await a.resolve();
+  co_await aa.resolve();
 
   std::cout << sizeof(av::Ref) << std::endl;
 }
+
+struct avarice_tests {
+  avarice_tests() { g_tests.push_back(avarice_tests::test); }
+  static void test() {
+    std::cout << "TEST SUITE: avarice.hpp\n";
+    boost::asio::io_context io;
+    boost::asio::co_spawn(io, avarice_tests_coro(io.get_executor()),
+                          boost::asio::detached);
+    io.run();
+  }
+} g_avarice_tests;

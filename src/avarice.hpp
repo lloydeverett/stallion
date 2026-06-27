@@ -7,14 +7,35 @@
 #include <memory>
 #include <new> /* IWYU pragma: keep */
 #include <optional>
-/* #include <thread> */
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
 
-template <typename ObjectT, typename BaseStateT>
+#include "async.hpp"
+#include "asyncex.hpp"
+
+// Avarice manages typed, polymorphic, lazily-resolved object references
+// (Ref / RefTo<T>) with value semantics and async resolution.
+//
+// Refs are value types. Store them on the stack or inside containers that
+// themselves have automatic storage (e.g. a std::vector<Ref> local variable).
+// Copy and move them freely.
+//
+// Avoid taking a non-const lvalue reference (&) to a Ref; there is seldom a
+// reason to and it forces callers to reason about aliasing. A const reference
+// (const Ref &) is acceptable because it is read-only and cannot trigger
+// resolution.
+//
+// If a Ref must live on the heap, prefer a specialised container that supplies
+// Ref copies on demand. Each coroutine then holds its own Ref copy in its
+// stack frame for the lifetime of the co_await, avoiding dangling references.
+template <typename ObjectT, typename BaseStateT,
+          async::Concurrency ConcurrencyLevel>
   requires std::has_virtual_destructor_v<ObjectT>
 struct avarice {
+  static constexpr bool IsConcurrent =
+      (ConcurrencyLevel == async::Concurrency::Multi);
+
   template <typename T> class Emplacer {
     std::optional<T> *opt_ptr;
 
@@ -278,92 +299,74 @@ struct avarice {
 
   class BaseRef {
   public:
-    virtual ObjectT *resolve() = 0;
+    virtual async::Awaitable<ObjectT *> resolve() = 0;
     virtual const BaseStateT &state() const = 0;
     virtual ~BaseRef() = default;
   };
 
   //  NOTE: Must use single, non-virtual inheritance. See notes in Ref and RefTo
-  //  implementastions.
+  //  implementations.
   template <typename T>
     requires std::derived_from<T, ObjectT>
   class BaseRefTo : public BaseRef {
   public:
-    virtual T *resolve() = 0;
-  };
+    virtual async::Awaitable<T *> resolve_typed() = 0;
 
-  /*
-  template <typename T> class ThreadLocalStorage {
-  private:
-    std::shared_ptr<std::optional<T>> ptr;
-    std::thread::id owner_thread_id;
-
-    void assert_thread() {
-      assert(std::this_thread::get_id() == owner_thread_id &&
-             "Thread local storage accessed from a thread other than the owner "
-             "thread.");
-    }
-
-  public:
-    ThreadLocalStorage()
-        : ptr(std::make_shared<std::optional<T>>(std::nullopt)),
-          owner_thread_id(std::this_thread::get_id()) {}
-
-    ThreadLocalStorage(const T &obj)
-        : ptr(std::make_shared<std::optional<T>>(obj)),
-          owner_thread_id(std::this_thread::get_id()) {}
-
-    std::optional<T> &opt() {
-      assert_thread();
-      assert(ptr);
-      return *ptr;
-    }
-    const std::optional<T> &opt() const {
-      assert_thread();
-      assert(ptr);
-      return *ptr;
+    async::Awaitable<ObjectT *> resolve() override {
+      T *p = co_await resolve_typed();
+      co_return static_cast<ObjectT *>(p);
     }
   };
-  */
 
+  // Storage backed by a shared_ptr: copies share the same underlying object
+  // and initialization gate.
   template <typename T> class KnownThreadSafeStorage {
   private:
-    std::shared_ptr<std::optional<T>> ptr;
+    std::shared_ptr<asyncex::Lazy<T, IsConcurrent>> ptr;
 
   public:
-    KnownThreadSafeStorage()
-        : ptr(std::make_shared<std::optional<T>>(std::nullopt)) {}
-
-    KnownThreadSafeStorage(const T &obj)
-        : ptr(std::make_shared<std::optional<T>>(obj)) {}
+    explicit KnownThreadSafeStorage(async::Executor exec)
+        : ptr(std::make_shared<asyncex::Lazy<T, IsConcurrent>>(exec)) {}
 
     std::optional<T> &opt() {
       assert(ptr);
-      return *ptr;
+      return ptr->opt();
     }
     const std::optional<T> &opt() const {
       assert(ptr);
-      return *ptr;
+      return ptr->opt();
+    }
+    asyncex::InitializationGate<IsConcurrent> &gate() {
+      assert(ptr);
+      return ptr->gate();
     }
   };
 
+  // Storage backed by a unique_ptr: copies produce independent objects with
+  // their own initialization gates.
   template <typename T> class CopyingStorage {
-    std::unique_ptr<std::optional<T>> ptr;
+  private:
+    std::unique_ptr<asyncex::Lazy<T, IsConcurrent>> ptr;
+    async::Executor executor_;
 
   public:
-    CopyingStorage() : ptr(std::make_unique<std::optional<T>>(std::nullopt)) {}
+    explicit CopyingStorage(async::Executor exec)
+        : ptr(std::make_unique<asyncex::Lazy<T, IsConcurrent>>(exec)),
+          executor_(exec) {}
 
-    CopyingStorage(const T &obj)
-        : ptr(std::make_unique<std::optional<T>>(obj)) {}
-
-    CopyingStorage(const CopyingStorage &other)
-        : ptr(other.ptr ? std::make_unique<std::optional<T>>(*other.ptr)
-                        : nullptr) {}
+    CopyingStorage(const CopyingStorage &other) : executor_(other.executor_) {
+      if (other.ptr) {
+        ptr = std::make_unique<asyncex::Lazy<T, IsConcurrent>>(
+            executor_, other.ptr->opt());
+      }
+    }
 
     CopyingStorage &operator=(const CopyingStorage &other) {
       if (this != &other) {
+        executor_ = other.executor_;
         if (other.ptr) {
-          ptr = std::make_unique<std::optional<T>>(*other.ptr);
+          ptr = std::make_unique<asyncex::Lazy<T, IsConcurrent>>(
+              executor_, other.ptr->opt());
         } else {
           ptr.reset();
         }
@@ -377,11 +380,15 @@ struct avarice {
 
     std::optional<T> &opt() {
       assert(ptr);
-      return *ptr;
+      return ptr->opt();
     }
     const std::optional<T> &opt() const {
       assert(ptr);
-      return *ptr;
+      return ptr->opt();
+    }
+    asyncex::InitializationGate<IsConcurrent> &gate() {
+      assert(ptr);
+      return ptr->gate();
     }
   };
 
@@ -398,7 +405,8 @@ struct avarice {
     StorageT<T> _storage;
 
   public:
-    StorageRef(StateT state) : _state(std::move(state)) {
+    StorageRef(StateT state, async::Executor executor)
+        : _state(std::move(state)), _storage(executor) {
       // Assertion must be in constructor to avoid failing the assert when
       // evaluating constexpr object sizes with dummy parameters
       static_assert(std::copyable<StateT>, "State class must be copyable!");
@@ -407,22 +415,21 @@ struct avarice {
           "State class must inherit from base state template parameter type!");
     }
 
-    T *resolve() override {
-      if (!_storage.opt()) {
-        _state.get().emplace(Emplacer(&_storage.opt()));
+    async::Awaitable<T *> resolve_typed() override {
+      auto maybe_exc =
+          co_await _storage.gate().try_init([this]() -> async::Awaitable<void> {
+            _state.get().emplace(Emplacer(&_storage.opt()));
+            co_return;
+          });
+      if (maybe_exc) {
+        std::rethrow_exception(*maybe_exc);
       }
-      return _storage.opt() ? &(*_storage.opt()) : nullptr;
+      co_return _storage.opt() ? &(*_storage.opt()) : nullptr;
     }
 
     const StateT &state() const override { return _state.get(); }
   };
 
-  /*
-  template <typename T, typename StateT, bool IsSizeMeasurement = false>
-    requires std::copyable<ThreadLocalStorage<T>>
-  using ThreadLocalRef =
-      StorageRef<T, StateT, ThreadLocalStorage, IsSizeMeasurement>;
-  */
   template <typename T, typename StateT, bool IsSizeMeasurement = false>
     requires std::copyable<KnownThreadSafeStorage<T>>
   using KnownThreadSafeRef =
@@ -431,11 +438,6 @@ struct avarice {
     requires std::copyable<CopyingStorage<T>>
   using CopyingRef = StorageRef<T, StateT, CopyingStorage, IsSizeMeasurement>;
 
-  /*
-  template <typename T, typename StateT>
-  static constexpr auto thread_local_ref_type =
-      std::in_place_type<ThreadLocalRef<T, StateT>>;
-  */
   template <typename T, typename StateT>
   static constexpr auto known_thread_safe_ref_type =
       std::in_place_type<KnownThreadSafeRef<T, StateT>>;
@@ -444,8 +446,7 @@ struct avarice {
       std::in_place_type<CopyingRef<T, StateT>>;
 
   static constexpr int POLYMORPHIC_REF_BUFFER_SIZE =
-      std::max({/* sizeof(ThreadLocalRef<ObjectT, BaseStateT, true>), */
-                sizeof(KnownThreadSafeRef<ObjectT, BaseStateT, true>),
+      std::max({sizeof(KnownThreadSafeRef<ObjectT, BaseStateT, true>),
                 sizeof(CopyingRef<ObjectT, BaseStateT, true>)});
 
   class Ref;
@@ -460,9 +461,9 @@ struct avarice {
 
     friend class Ref;
 
-    T *resolve() {
+    async::Awaitable<T *> resolve() {
       assert(ptr());
-      return ptr()->resolve();
+      co_return co_await ptr()->resolve_typed();
     }
 
     const BaseStateT &state() const {
@@ -508,9 +509,9 @@ struct avarice {
 
     template <typename T> friend class RefTo;
 
-    ObjectT *resolve() {
+    async::Awaitable<ObjectT *> resolve() {
       assert(ptr());
-      return ptr()->resolve();
+      co_return co_await ptr()->resolve();
     }
 
     const BaseStateT &state() const {
