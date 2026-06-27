@@ -15,43 +15,6 @@
 template <typename ObjectT, typename BaseStateT>
   requires std::has_virtual_destructor_v<ObjectT>
 struct avarice {
-
-  //  TODO: OK actually - do channel-based mutex
-  //     // replace sync APIs with async APIs using asyncx
-  //     // See initializer.hpp
-  //          // make an async-mutex-single-threaded.hpp based on
-  //          async-mutex.hpp
-  //          // get the API to be similar
-  //          // but write the implementation new to remove threaded complexity
-
-  //  TODO: Define principles and generally have docs
-  //         - automatic / stack storage for refs, OR refs directly owned by
-  //         objects that have automatic storage (e.g. a std::vector)
-  //         - always avoid taking references (&) to refs, though maybe we can
-  //         allow const & references
-  //           since you can't do much with them anyway
-  //         - if you want to store a ref on the heap, you must use a
-  //         specialised container that supplies ref copies
-  //           then the coroutine ref will stick around in the stack frame
-
-  //  TODO: On ANY shared_ptr storage, use an async optional or initialization
-  //  gate or whatever
-  //     template <typename T>
-  //     class MutexOptional {
-  //         std::optional<T> opt;
-  //         Mutex mutex;
-  //     };
-  //     So the shared ptr should point to an optional lock as well as the
-  //     optional Ignore the possibility of moves during an emplace, it's too
-  //     complicated, but also if you follow the principles above it's very
-  //     difficult to mess up
-
-  //  TODO: after doing the above: maybe even consider a thread-safe optional
-  //  class, defined in asyncx and used here
-  //    similar to the above but the optional's "occupied" flag would be atomic
-  //    you would only use it in refs designed to cater for thread safe access
-  //    like ThreadSafeRef
-
   template <typename T> class Emplacer {
     std::optional<T> *opt_ptr;
 

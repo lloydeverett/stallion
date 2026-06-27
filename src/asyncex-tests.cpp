@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "asyncex.hpp"
+#include "tests.hpp"
 
 template <bool IsConcurrent> void test_async_mutex() {
   std::cout << "[TEST] Running AsyncMutex mutual exclusion test..."
@@ -109,21 +110,17 @@ template <bool IsConcurrent> void test_initialization_gate_failure_and_retry() {
   std::cout << "  -> Passed!" << std::endl;
 }
 
-int main() {
-  try {
-    std::cout << "[Non-concurrent mutex and gate implementation]" << std::endl;
+struct asyncex_tests {
+  asyncex_tests() { g_tests.push_back(asyncex_tests::test); }
+  static void test() {
+    std::cout << "[Non-concurrent mutex and gate implementation]\n";
     test_async_mutex<false>();
     test_initialization_gate_success<false>();
     test_initialization_gate_failure_and_retry<false>();
-    std::cout << std::endl;
-    std::cout << "[Concurrent mutex and gate implementation]" << std::endl;
+    std::cout << "\n[Concurrent mutex and gate implementation]\n";
     test_async_mutex<true>();
     test_initialization_gate_success<true>();
     test_initialization_gate_failure_and_retry<true>();
     std::cout << "\nAll tests passed successfully!\n";
-  } catch (const std::exception &e) {
-    std::cerr << "Test failed with exception: " << e.what() << std::endl;
-    return 1;
   }
-  return 0;
-}
+} g_asyncex_tests;

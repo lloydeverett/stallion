@@ -24,7 +24,7 @@ public:
   MyObject(std::string str) : str(std::move(str)) {}
 };
 
-int main() {
+void avarice_tests() {
   struct CommitRefState : public BaseStateT {
     std::string x;
     void emplace(av::Emplacer<MyObject> emplacer) const {
@@ -71,6 +71,4 @@ int main() {
   aa.resolve();
 
   std::cout << sizeof(av::Ref) << std::endl;
-
-  return 0;
 }
