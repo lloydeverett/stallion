@@ -50,8 +50,6 @@ struct ThrowingState : public BaseStateT {
   }
 };
 
-// ─── Non-async tests ─────────────────────────────────────────────────────────
-
 static void test_emplacer() {
   std::cout << "[TEST] Emplacer emplaces into optional..." << std::endl;
   std::optional<MyObject> opt;
