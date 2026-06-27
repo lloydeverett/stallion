@@ -433,7 +433,7 @@ struct avarice {
 
   /*
   template <typename T, typename StateT>
-  static constexpr auto shared_ref_type =
+  static constexpr auto thread_local_ref_type =
       std::in_place_type<ThreadLocalRef<T, StateT>>;
   */
   template <typename T, typename StateT>

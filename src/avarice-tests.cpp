@@ -43,12 +43,11 @@ void avarice_tests() {
     }
   } state;
 
-  av::RefTo<MyObject> a{av::shared_ref_type<MyObject, CommitRefState>, state};
+  av::RefTo<MyObject> a{
+      av::known_thread_safe_ref_type<MyObject, CommitRefState>, state};
   a.resolve();
 
   std::cout << sizeof(av::RefTo<MyObject>) << std::endl;
-  std::cout << alignof(av::ThreadLocalRef<MyObject, CommitRefState>)
-            << std::endl;
   std::cout << alignof(std::max_align_t) << std::endl;
 
   av::RefTo<MyObject> a_copy = a;
