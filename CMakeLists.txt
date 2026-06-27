@@ -46,5 +46,4 @@ add_custom_command(
 )
 
 # TODO: Rename from stallion to something else
-# TODO: Work out multiple translation units for tests
 
