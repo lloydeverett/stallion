@@ -223,7 +223,7 @@ asio::awaitable<void> do_listen(asio::ip::tcp::endpoint endpoint,
             try {
               std::rethrow_exception(e);
             } catch (std::exception const &e) {
-              SERVER_LOG_ERROR() << "Error in session: " << e.what();
+              LOG_ERROR("Error in session: {}", e.what());
             }
           }
         });
@@ -244,7 +244,7 @@ int expose_http_main(const char *address_str, unsigned short port,
                      try {
                        std::rethrow_exception(e);
                      } catch (std::exception const &e) {
-                       SERVER_LOG_ERROR() << "Error: " << e.what();
+                       LOG_ERROR("Error: {}", e.what());
                      }
                    }
                  });

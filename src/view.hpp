@@ -290,15 +290,15 @@ private:
     RootViewCommandRuntime(RootView &view) : view(view) {}
     virtual void info(std::string_view text) override {
       view.toast({std::string(text), StatusLineVariant::INFO});
-      UI_LOG_DEBUG() << "info: " << text;
+      LOG_DEBUG("info: {}", text);
     }
     virtual void error_warn(std::string_view text) override {
       view.toast({std::string(text), StatusLineVariant::ERROR_WARN});
-      UI_LOG_DEBUG() << "error_warn: " << text;
+      LOG_DEBUG("error_warn: {}", text);
     }
     virtual void error_fail(std::string_view text) override {
       view.toast({std::string(text), StatusLineVariant::ERROR_FAIL});
-      UI_LOG_DEBUG() << "error_fail: " << text;
+      LOG_DEBUG("error_fail: {}", text);
     }
   };
 
@@ -432,8 +432,8 @@ public:
     renderer = ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
       for (std::size_t i = 0; i < keycode_events.size(); i++) {
         if (event == keycode_events[i]) {
-          UI_LOG_DEBUG() << "keypress: "
-                         << keycode_display_text(integral_to_keycode(i));
+          LOG_DEBUG("keypress: {}",
+                    keycode_display_text(integral_to_keycode(i)));
           return multi_command_set->handle_keypress(integral_to_keycode(i),
                                                     command_runtime);
         }

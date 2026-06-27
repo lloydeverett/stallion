@@ -1,73 +1,74 @@
 #pragma once
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <mutex>
 #include <chrono>
-#include <iomanip>
+#include <format>
+#include <fstream>
+#include <mutex>
+#include <string>
+
+constexpr const char *LOG_FILENAME = "stallion.log";
 
 enum class LogLevel { DEBUG, INFO, WARN, ERROR };
 
-class TinyLogger {
-public:
-    TinyLogger(LogLevel level, const char* file, int line) : msgLevel(level) {
-        // automatically prepend metadata to the buffer
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+inline void tiny_log(LogLevel level, const char *file, int line,
+                     std::string msg) {
+  auto now = std::chrono::system_clock::now();
+  auto time = std::chrono::system_clock::to_time_t(now);
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()) %
+            1000;
 
-        os << "[" << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S")
-           << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
-           << "[" << level_to_string(level) << "] "
-           << "[" << file << ":" << line << "] ";
-    }
+  const char *level_str;
+  switch (level) {
+  case LogLevel::DEBUG:
+    level_str = "DEBUG";
+    break;
+  case LogLevel::INFO:
+    level_str = "INFO";
+    break;
+  case LogLevel::WARN:
+    level_str = "WARN";
+    break;
+  case LogLevel::ERROR:
+    level_str = "ERROR";
+    break;
+  default:
+    level_str = "UNKNOWN";
+    break;
+  }
 
-    ~TinyLogger() {
-        // deconstruct and flush out everything atomically to prevent interweaving threads
-        static std::mutex log_mutex;
-        static std::ofstream log_file("stallion.log", std::ios::app);
-        std::lock_guard<std::mutex> lock(log_mutex);
-        if (log_file.is_open()) {
-            log_file << os.str() << std::endl;
-        }
-    }
+  char time_buf[32];
+  std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S",
+                std::localtime(&time));
 
-    template <typename T>
-    TinyLogger& operator<<(const T& msg) {
-        os << msg;
-        return *dynamic_cast<TinyLogger*>(this);
-    }
+  auto line_str = std::format("[{}.{:03d}] [{}] [{}:{}] {}\n", time_buf,
+                              ms.count(), level_str, file, line, msg);
 
-private:
-    std::ostringstream os;
-    LogLevel msgLevel;
+  static std::mutex log_mutex;
+  static std::ofstream log_file(LOG_FILENAME, std::ios::app);
+  std::lock_guard<std::mutex> lock(log_mutex);
+  if (log_file.is_open()) {
+    log_file << line_str;
+  }
+}
 
-    const char* level_to_string(LogLevel level) {
-        switch (level) {
-            case LogLevel::DEBUG: return "DEBUG";
-            case LogLevel::INFO:  return "INFO";
-            case LogLevel::WARN:  return "WARN";
-            case LogLevel::ERROR: return "ERROR";
-            default: return "UNKNOWN";
-        }
-    }
-};
+template <typename... Args>
+void tiny_log_fmt(LogLevel level, const char *file, int line,
+                  std::format_string<Args...> fmt, Args &&...args) {
+  tiny_log(level, file, line, std::format(fmt, std::forward<Args>(args)...));
+}
 
 #ifndef NDEBUG
-#define UI_LOG_DEBUG() TinyLogger(LogLevel::DEBUG, __FILE__, __LINE__)
-#define UI_LOG_INFO()  TinyLogger(LogLevel::INFO,  __FILE__, __LINE__)
-#define UI_LOG_WARN()  TinyLogger(LogLevel::WARN,  __FILE__, __LINE__)
-#define UI_LOG_ERROR() TinyLogger(LogLevel::ERROR, __FILE__, __LINE__)
+#define LOG_DEBUG(...)                                                         \
+  tiny_log_fmt(LogLevel::DEBUG, __FILE__, __LINE__, __VA_ARGS__)
 #else
-#define UI_LOG_DEBUG() while(false) std::ostream(nullptr)
-#define UI_LOG_INFO()  while(false) std::ostream(nullptr)
-#define UI_LOG_WARN()  while(false) std::ostream(nullptr)
-#define UI_LOG_ERROR() while(false) std::ostream(nullptr)
+#define LOG_DEBUG(...)                                                         \
+  do {                                                                         \
+  } while (false)
 #endif
-
-#define SERVER_LOG_DEBUG() TinyLogger(LogLevel::DEBUG, __FILE__, __LINE__)
-#define SERVER_LOG_INFO()  TinyLogger(LogLevel::INFO,  __FILE__, __LINE__)
-#define SERVER_LOG_WARN()  TinyLogger(LogLevel::WARN,  __FILE__, __LINE__)
-#define SERVER_LOG_ERROR() TinyLogger(LogLevel::ERROR, __FILE__, __LINE__)
-
+#define LOG_INFO(...)                                                          \
+  tiny_log_fmt(LogLevel::INFO, __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_WARN(...)                                                          \
+  tiny_log_fmt(LogLevel::WARN, __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_ERROR(...)                                                         \
+  tiny_log_fmt(LogLevel::ERROR, __FILE__, __LINE__, __VA_ARGS__)
