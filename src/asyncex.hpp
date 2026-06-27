@@ -8,7 +8,12 @@
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
-// A simple asynchronous Mutex built on top of an Asio Channel
+// An async mutex built on top of an Asio channel.
+//
+// Callers `co_await lock()` to acquire, receiving an RAII `Lock` that releases
+// on destruction. The `IsConcurrent` flag selects between a thread-safe
+// `concurrent_channel` (true) for use across multiple threads and a lighter
+// single-strand `channel` (false) for use within one Asio strand.
 template <bool IsConcurrent> class AsyncMutex {
   using ChannelType =
       typename std::conditional<IsConcurrent,
@@ -22,6 +27,8 @@ template <bool IsConcurrent> class AsyncMutex {
   ChannelType channel_;
 
 public:
+  // RAII guard returned by `lock()` and `try_lock_uncontested()`. Releases the
+  // mutex when it goes out of scope. Move-only; not copyable.
   class Lock {
     friend class AsyncMutex;
     AsyncMutex *mutex_;
@@ -89,6 +96,10 @@ private:
   }
 };
 
+// Drop-in replacement for `std::atomic<T>` that performs no synchronization
+// and ignores memory orders. Used as the `FlagType` in `InitializationGate`
+// when `IsConcurrent=false`, where actual atomics would be unnecessary
+// overhead.
 template <typename T> class PseudoAtomic {
   T obj;
 
@@ -98,6 +109,21 @@ public:
   void store(T value, std::memory_order ignored) { obj = std::move(value); }
 };
 
+// Ensures an async initialization callback runs exactly once, even when called
+// concurrently. Callers pass an awaitable callback to `try_init()`; the first
+// uncontested caller runs the init while any late arrivals wait on the mutex
+// and re-check the flag (double-checked locking). Returns nullopt on success or
+// if already initialized; returns the stored exception_ptr on failure.
+//
+// Failure behaviour:
+//   - Concurrent waiters (callers blocked on the mutex while init ran) receive
+//     the stored exception propagated to them without re-running the callback.
+//   - Subsequent non-concurrent callers (arriving after all prior callers have
+//     finished, so the mutex is free) acquire uncontested and retry the init
+//     from scratch. Failure is therefore not permanent: the gate resets each
+//     time a new uncontested caller arrives.
+//
+// `IsConcurrent` follows the same thread-safety semantics as `AsyncMutex`.
 template <bool IsConcurrent> class InitializationGate {
 private:
   using FlagType = typename std::conditional<IsConcurrent, std::atomic<bool>,
