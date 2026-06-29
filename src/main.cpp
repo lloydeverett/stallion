@@ -14,8 +14,10 @@ int main(int argc, char *argv[]) {
   }
 
   // clang-format off
-  // --provide-git 'dir=., alias=foo' --pre-basic-auth 'path=/' --post-log --expose-http 'port=8080' --expose-tui --end
-  // --provide-git 'alias=foo' --pre-basic-auth 'path=/' --post-log --expose-http 'port=8081' --end
+  // --provide-git '.dir=.' --alias foobar --end
+  // --provide-import 'alias:foobar, at:/' foobar --pre-basic-auth 'at:/' --post-log --expose-http 'port:8080' --expose-tui --end
+  // --provide-import 'alias:foobar, at:/' --pre-basic-auth 'at:/' --post-log --expose-http 'port:8081' --end
+  // ^ explicit longest substring matching, so if you provide x at /a/b and y at /a on the same rule, /a/b should return x
   // clang-format on
 
   // maybe use HJSON
